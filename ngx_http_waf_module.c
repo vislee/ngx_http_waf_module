@@ -597,22 +597,59 @@ ngx_http_waf_print_mz(ngx_http_waf_match_zone_t *mz)
 }
 
 static void
-ngx_http_waf_print_rule(ngx_http_waf_rule_t *r)
+ngx_http_waf_print_wlmz_array(ngx_array_t *a, char *s)
 {
     ngx_uint_t    x;
     ngx_http_waf_match_zone_t  *mzs;
 
-    fprintf(stderr, "\n%s%p\n", "=======rule========", r);
+    fprintf(stderr, "[wl_mz_array:%s:\n", s);
+    if (a == NULL) goto end;
+
+    mzs = a->elts;
+    for (x = 0; x < a->nelts; x++) {
+        ngx_http_waf_print_mz(&mzs[x]);
+    }
+    end:
+    fprintf(stderr, "]\n");
+}
+
+static void
+ngx_http_waf_print_wl(ngx_http_waf_whitelist_t *wl)
+{
+    fprintf(stderr, " {wl:%p\n", wl);
+    if (wl == NULL) goto end;
+    fprintf(stderr, "  id:%ld\n", wl->id);
+    ngx_http_waf_print_wlmz_array(wl->headers_zones, "headers_zones");
+
+    end:
+    fprintf(stderr, " }\n");
+}
+
+static void
+ngx_http_waf_print_wl_array(ngx_array_t *a, char *s) {
+    ngx_uint_t    x;
+    ngx_http_waf_whitelist_t *wls;
+
+    fprintf(stderr, "[%s\n", s);
+    if (a == NULL) goto end;
+
+    wls = a->elts;
+    for (x = 0; x < a->nelts; x++) {
+        ngx_http_waf_print_wl(&wls[x]);
+    }
+
+    end:
+    fprintf(stderr, "]\n\n");
+}
+
+static void
+ngx_http_waf_print_rule(ngx_http_waf_rule_t *r)
+{
+    fprintf(stderr, "{rule:%p\n", r);
     ngx_http_waf_print_public_rule(r->p_rule);
     ngx_http_waf_print_mz(r->m_zone);
-    if (r->wl_zones != NULL) {
-        fprintf(stderr, "%s\n", "~~~~~~~~~~~~whitelist mz~~~~~~~~~~~~");
-        mzs = r->wl_zones->elts;
-        for (x = 0; x < r->wl_zones->nelts; x++) {
-            ngx_http_waf_print_mz(&mzs[x]);
-        }
-    }
-    fprintf(stderr, "%s\n", "===================");
+    ngx_http_waf_print_wlmz_array(r->wl_zones, "");
+    fprintf(stderr, "}\n");
     return;
 }
 
@@ -622,14 +659,16 @@ ngx_http_waf_print_rule_array(ngx_array_t *a, char *s)
     ngx_uint_t            x;
     ngx_http_waf_rule_t  *rs;
 
-    fprintf(stderr, "\n%s%s\n", "###########rule_array#", s);
-    if (a == NULL) return;
+    fprintf(stderr, "\n%s%s\n", "====rule_array===", s);
+    if (a == NULL) goto end;
 
     rs = a->elts;
     for (x = 0; x < a->nelts; x++) {
         ngx_http_waf_print_rule(&rs[x]);
     }
-    fprintf(stderr, "%s%s\n\n\n", "###########rule_array#", s);
+
+    end:
+    fprintf(stderr, "%s%s\n", "----rule_array---", s);
 }
 
 
@@ -673,7 +712,7 @@ ngx_http_waf_search_whitelist(ngx_array_t *wl, ngx_int_t id)
 }
 
 
-// TODO: 
+// TODO: error
 static ngx_int_t
 ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
     ngx_array_t *prev, ngx_array_t **conf)
@@ -681,11 +720,10 @@ ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
     ngx_uint_t                     i, j, k;
     ngx_array_t                   *wl_part;
     ngx_http_waf_rule_t           *rule, *prev_rule, *prev_rules;
-    // ngx_http_waf_rule_t          *curr_rules;
     ngx_http_waf_whitelist_t      *wl_rule;
-    ngx_http_waf_match_zone_t     *wl_zone;
+    ngx_http_waf_match_zone_t     *wl_zones;
 
-    if (wl == NULL && prev == NULL) {
+    if (prev == NULL) {
         return NGX_OK;
     }
 
@@ -703,67 +741,42 @@ ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
         }
     }
 
-#if 0
-    curr_rules = (*conf)->elts;
-    for (i = 0; i < (*conf)->nelts; i++) {
-        rule = &curr_rules[i];
-        wl_rule = ngx_http_waf_search_whitelist(wl, rule->p_rule->id);
-        if (wl_rule == NULL) {
-            continue;
-        }
-
-        if (wl_rule->all_zones) {
-            rule->invalid = 1;
-        }
-
-        for (j = 0; ngx_http_waf_conf_add_wl[j].flag !=0 ;j++) {
-            if (rule->m_zone->mark & ngx_http_waf_conf_add_wl[j].flag) {
-                wl_part = (ngx_array_t*)
-                    ((u_char*)wl_rule + ngx_http_waf_conf_add_wl[j].offset);
-                wl_zone = wl_part->elts;
-                for (k = 0; wl_part->nelts; k++) {
-                    if (ngx_http_waf_match_zone_eq(rule->m_zone, &wl_zone[k])) {
-                        rule->invalid = 1;
-                        break;
-                    }
-                }
-                rule->wl_array = wl_part;
-            }
-        }
-    }
-#endif
-
+    // the whitelist only affect prev->
     prev_rules = prev->elts;
     for (i = 0; i < prev->nelts; i++) {
         prev_rule = &prev_rules[i];
         wl_rule = ngx_http_waf_search_whitelist(wl, prev_rule->p_rule->id);
-        if (wl_rule->all_zones) {
-            continue;
-        }
 
-        for (j = 0; ngx_http_waf_conf_add_wl[j].flag !=0 ;j++) {
-            if (!(prev_rule->m_zone->mark & ngx_http_waf_conf_add_wl[j].flag)) {
+        if (wl_rule != NULL) {
+            if (wl_rule->all_zones) {
                 continue;
             }
 
-            wl_part = (ngx_array_t*)
-                ((u_char*)wl_rule + ngx_http_waf_conf_add_wl[j].offset);
-            wl_zone = wl_part->elts;
-            for (k = 0; wl_part->nelts; k++) {
-                if (ngx_http_waf_match_zone_eq(prev_rule->m_zone, &wl_zone[k]))
-                {
-                    goto skip_rule;
+            for (j = 0; ngx_http_waf_conf_add_wl[j].flag !=0 ;j++) {
+                if (!(prev_rule->m_zone->mark
+                    & ngx_http_waf_conf_add_wl[j].flag)) {
+                    continue;
                 }
-            }
 
-            break;
+                wl_part = *((ngx_array_t**)
+                    ((char*)wl_rule + ngx_http_waf_conf_add_wl[j].offset));
+                wl_zones = wl_part->elts;
+                for (k = 0; k < wl_part->nelts; k++) {
+                    if (ngx_http_waf_match_zone_eq(prev_rule->m_zone,
+                        &wl_zones[k])) {
+                        goto skip_rule;
+                    }
+                }
+
+                break;
+            }
         }
 
         rule = ngx_array_push(*conf);
         if (rule == NULL) {
             return NGX_ERROR;
         }
-        rule = prev_rule;
+        *rule = *prev_rule;
 
     skip_rule:
         continue;
@@ -785,7 +798,7 @@ ngx_array_binary_search(ngx_array_t *a, void *v,
     m = -1;
 
     t = a->elts;
-    while (l < r) {
+    while (l <= r) {
         m = l + ((r-l) >> 1);
         rc = cmp((void*)(t + m*a->size), v);
         if (rc < 0) {
@@ -847,6 +860,7 @@ ngx_http_waf_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_array_t                *wl_array;  /* whitelist */
     ngx_array_t                *pr_array;  /* parent rules */
 
+    // check location
     if (conf->check_rules == NULL) {
         return NGX_CONF_OK;
     }
@@ -854,10 +868,6 @@ ngx_http_waf_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     wmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_waf_module);
     if (wmcf == NULL) {
         return NGX_CONF_ERROR;
-    }
-
-    if (conf->whitelists == NULL) {
-        // TODO
     }
 
     // TODO: qsort loc->whitelist
@@ -869,17 +879,8 @@ ngx_http_waf_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         wl_array = conf->whitelists;
     }
 
-    ngx_http_waf_print_rule_array(wmcf->headers, "wmcf->headers");
-    ngx_http_waf_print_rule_array(wmcf->headers_var, "wmcf->headers_var");
-
-    ngx_http_waf_print_rule_array(prev->headers, "prev->headers");
-    ngx_http_waf_print_rule_array(prev->headers_var, "prev->headers_var");
-
-    ngx_http_waf_print_rule_array(conf->headers, "conf->headers");
-    ngx_http_waf_print_rule_array(conf->headers_var, "conf->headers_var");
-
-    return NGX_CONF_OK;
     // TODO: 
+    // if location the prev-> is not null.
     pr_array = wmcf->headers;
     if (prev->headers != NULL) {
         pr_array = prev->headers;
@@ -890,6 +891,8 @@ ngx_http_waf_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         != NGX_OK) {
         return NGX_CONF_ERROR;
     }
+
+    fprintf(stderr, "%s\n", "=======merge1=======");
 
     // TODO: 
     pr_array = wmcf->headers_var;
@@ -902,6 +905,11 @@ ngx_http_waf_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         != NGX_OK) {
         return NGX_CONF_ERROR;
     }
+
+    fprintf(stderr, "%s\n", "=======merge2=======");
+
+    ngx_http_waf_print_rule_array(conf->headers, "conf->headers");
+    ngx_http_waf_print_rule_array(conf->headers_var, "conf->headers_var");
 
     // TODO:
 
@@ -1191,9 +1199,8 @@ ngx_http_waf_loc_rule(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
     }
 
-    ngx_http_waf_print_rule_array(wlcf->headers, "wlcf->headers");
-    ngx_http_waf_print_rule_array(wlcf->headers_var, "wlcf->headers_var");
-
+    // ngx_http_waf_print_rule_array(wlcf->headers, "wlcf->headers");
+    // ngx_http_waf_print_rule_array(wlcf->headers_var, "wlcf->headers_var");
     return NGX_CONF_OK;
 }
 
