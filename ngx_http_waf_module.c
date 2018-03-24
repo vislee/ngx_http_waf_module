@@ -49,16 +49,10 @@
  * 
  */
 
-// public rule flag
-#define NGX_HTTP_WAF_RULE_STR_TYPE     0x00F0
-#define NGX_HTTP_WAF_RULE_STR_CT       0x0000
-#define NGX_HTTP_WAF_RULE_STR_EQ       0x0010
-#define NGX_HTTP_WAF_RULE_STR_SW       0x0020
-#define NGX_HTTP_WAF_RULE_STR_EW       0x0040
-#define NGX_HTTP_WAF_RULE_STR_RX       0x0080
 
 // rule status
 // action flag
+// ngx_http_waf_rule_t->sts
 #define NGX_HTTP_WAF_RULE_STS_ACTION   0x000F
 #define NGX_HTTP_WAF_RULE_STS_LOG      0x0001
 #define NGX_HTTP_WAF_RULE_STS_BLOCK    0x0002
@@ -84,6 +78,7 @@
     ((flag) & NGX_HTTP_WAF_RULE_STS_BLOCK)
 
 // match zone types
+// ngx_http_waf_zone_t->flag
 // general
 #define NGX_HTTP_WAF_MZ_G                0x100F
 #define NGX_HTTP_WAF_MZ_G_URL            0x0001
@@ -118,11 +113,6 @@
 #define NGX_HTTP_WAF_MZ_VAL              0x8000
 
 
-// #define ngx_http_waf_mz_gt(one, two)            \
-//     ( ((one) & (((two) & NGX_HTTP_WAF_MZ_VAR) >> 4)) \
-//         || ((one) & (((two) & NGX_HTTP_WAF_MZ_X) >> 8)) \
-//         || (((one) & NGX_HTTP_WAF_MZ_G) == ((two) & NGX_HTTP_WAF_MZ_G) \
-//         && (one) & NGX_HTTP_WAF_MZ_G != 0))
 #define ngx_http_waf_mz_gt(one, two)                            \
     ((one & ((two & NGX_HTTP_WAF_MZ_VAR) >> 4))                 \
     || (one & ((two & NGX_HTTP_WAF_MZ_VAR) >> 8))               \
@@ -137,9 +127,9 @@
 #define ngx_http_waf_mz_only_key(flag)   \
     ((flag) == NGX_HTTP_WAF_MZ_KEY)
 #define ngx_http_waf_mz_key(flag)        \
-    ((flag) & NGX_HTTP_WAF_MZ_KEY == NGX_HTTP_WAF_MZ_KEY)
+    ((flag) & NGX_HTTP_WAF_MZ_KEY)
 #define ngx_http_waf_mz_val(flag)        \
-    ((flag) & NGX_HTTP_WAF_MZ_VAL == NGX_HTTP_WAF_MZ_VAL)
+    ((flag) & NGX_HTTP_WAF_MZ_VAL)
 #define ngx_http_waf_mz_set_key_f(flag)  \
     ((flag) |= NGX_HTTP_WAF_MZ_KEY)
 #define ngx_http_waf_mz_set_val_f(flag)  \
@@ -165,15 +155,17 @@ typedef struct ngx_http_waf_score_s {
 
 
 // the rule
-typedef struct ngx_http_waf_public_rule_s {
-    ngx_int_t             id;
-    ngx_str_t             str;
-    ngx_regex_t          *regex;
-    ngx_array_t          *scores;  /* ngx_http_waf_score_t. maybe null */
+typedef struct ngx_http_waf_public_rule_s  ngx_http_waf_public_rule_t;
+typedef ngx_int_t (*ngx_http_waf_rule_match_pt)(
+    ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
+struct ngx_http_waf_public_rule_s {
+    ngx_int_t               id;
+    ngx_str_t               str;
+    ngx_regex_t            *regex;
+    ngx_array_t            *scores;  /* ngx_http_waf_score_t. maybe null */
 
-    // the first 4bit(0xF) is action, second 4bit(0xF0) is match type
-    ngx_uint_t            flag;
-} ngx_http_waf_public_rule_t;
+    ngx_http_waf_rule_match_pt  handler;
+};
 
 
 typedef struct ngx_http_waf_zone_s {
@@ -288,13 +280,13 @@ typedef struct ngx_http_waf_add_wl_part_s {
 
 
 typedef struct ngx_http_waf_rule_parser_s ngx_http_waf_rule_parser_t;
-typedef ngx_int_t (*ngx_http_waf_rule_item_parse)(ngx_conf_t *cf,
+typedef ngx_int_t (*ngx_http_waf_rule_item_parse_pt)(ngx_conf_t *cf,
     ngx_str_t *str, ngx_http_waf_rule_parser_t *parser,
     ngx_http_waf_rule_opt_t *opt);
 
 struct ngx_http_waf_rule_parser_s {
-    ngx_str_t                      prefix;
-    ngx_http_waf_rule_item_parse   handler;
+    ngx_str_t                        prefix;
+    ngx_http_waf_rule_item_parse_pt  handler;
 };
 
 
@@ -358,6 +350,16 @@ static ngx_int_t  ngx_http_waf_add_rule_handler(ngx_conf_t *cf,
     void *conf, ngx_uint_t offset);
 static ngx_int_t ngx_http_waf_add_wl_part_handler(ngx_conf_t *cf,
     ngx_http_waf_zone_t *mz, void *wl, ngx_uint_t offset);
+static ngx_int_t ngx_http_waf_rule_str_ct_handler(
+    ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
+static ngx_int_t ngx_http_waf_rule_str_eq_handler(
+    ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
+static ngx_int_t ngx_http_waf_rule_str_startwith_handler(
+    ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
+static ngx_int_t ngx_http_waf_rule_str_endwith_handler(
+    ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
+static ngx_int_t ngx_http_waf_rule_str_rx_handler(
+    ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
 static ngx_int_t ngx_libc_cdecl ngx_http_waf_whitelist_cmp_id(const void *wl,
     const void *id);
 static int ngx_libc_cdecl ngx_http_waf_cmp_whitelist_id(const void *one,
@@ -505,7 +507,6 @@ static ngx_http_waf_rule_parser_t  ngx_http_waf_rule_parser_item[] = {
 };
 
 
-
 static ngx_command_t  ngx_http_waf_commands[] = {
 
     { ngx_string("public_rule"),
@@ -641,9 +642,8 @@ ngx_http_waf_print_public_rule(ngx_http_waf_public_rule_t *br)
     ngx_uint_t             x;
     ngx_http_waf_score_t  *scs, *sc;
 
-    fprintf(stderr, "  public_rule: id:%ld str:%*s regex:%p flag: 0x%X\n",
-        br->id, (int)br->str.len, br->str.data, br->regex,
-        (unsigned int)br->flag);
+    fprintf(stderr, "  public_rule: id:%ld str:%*s regex:%p handler: %p\n",
+        br->id, (int)br->str.len, br->str.data, br->regex, br->handler);
 
     if (br->scores == NULL) return;
 
@@ -849,7 +849,7 @@ static ngx_int_t
 ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
     ngx_array_t *checks, ngx_array_t *prev, ngx_array_t **conf)
 {
-    ngx_uint_t                     i, j, k;
+    ngx_uint_t                     i, j, k, n;
     ngx_http_waf_rule_t           *prev_rules, *rule, *rules;
     ngx_http_waf_zone_t           *zones;
     ngx_http_waf_score_t          *ss;
@@ -865,6 +865,8 @@ ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
         }
     }
 
+    // local config rules size.
+    n = (*conf)->nelts;
     // ngx_http_waf_print_rule_array(prev, "prev");
     // merge rule
     if (prev != NULL) {
@@ -885,7 +887,12 @@ ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
     rules = (*conf)->elts;
     for (i = 0; i < (*conf)->nelts; i++) {
         rule = &rules[i];
-        wl_rule = ngx_http_waf_search_whitelist(wl, rule->p_rule->id);
+
+        wl_rule = NULL;
+        if (i >= n) {
+            // location config rule don't match whitelist.
+            wl_rule = ngx_http_waf_search_whitelist(wl, rule->p_rule->id);
+        }
 
         // add whitelist zones
         if (wl_rule != NULL) {
@@ -1212,8 +1219,6 @@ ngx_http_waf_parse_rule(ngx_conf_t *cf, ngx_http_waf_rule_opt_t *opt)
     if (opt->p_rule == NULL) {
         return NGX_ERROR;
     }
-    // 初始状态为无效
-    // opt->p_rule->flag = NGX_HTTP_WAF_RULE_STS_INVALID;
 
     for(i = 1; i < cf->args->nelts; i++) {
         vailid = 0;
@@ -1250,7 +1255,7 @@ ngx_http_waf_add_rule_handler(ngx_conf_t *cf, ngx_http_waf_public_rule_t *pr,
     ngx_array_t           **a;
     ngx_http_waf_rule_t    *r;
 
-    // maybe the rule is whitelist.
+    // maybe the rule is whiterlist.
     if (pr == NULL) {
         return NGX_OK;
     }
@@ -1271,7 +1276,6 @@ ngx_http_waf_add_rule_handler(ngx_conf_t *cf, ngx_http_waf_public_rule_t *pr,
 
     r->m_zone = mz;
     r->p_rule = pr;
-    r->sts = (pr->flag & NGX_HTTP_WAF_RULE_STS_ACTION);
 
     return NGX_OK;
 }
@@ -1613,40 +1617,40 @@ ngx_http_waf_parse_rule_str2(ngx_conf_t *cf, ngx_str_t *str,
     p = str->data + parser->prefix.len;
     e = str->data + str->len;
 
-    // @ct: @eq: @sw: @ew: @rx: 
-    if (p + 4 >= e || p[0] != '@' || p[3] != ':') {
+    // ct@xyz eq@xyz sw@xyz ew@xyz rx@xyz...
+    if (p + 3 >= e || p[2] != '@') {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                 "invalid str in arguments \"%V\"", str);
         return NGX_ERROR;
     }
 
-    opt->p_rule->str.len = e - (p + 4);
+    opt->p_rule->str.len = e - (p + 3);
     opt->p_rule->str.data = ngx_pcalloc(cf->pool,
         opt->p_rule->str.len + 1);
     if (opt->p_rule->str.data == NULL) {
         return NGX_ERROR;
     }
 
-    if (p[1] == 'c' && p[2] == 't') {
-        p += 4;
+    if (p[0] == 'c' && p[1] == 't') {
+        p += 3;
         ngx_strlow(opt->p_rule->str.data, p, opt->p_rule->str.len);
-        opt->p_rule->flag = NGX_HTTP_WAF_RULE_STR_CT;
-    } else if (p[1] == 'e' && p[2] == 'q') {
-        p += 4;
+        opt->p_rule->handler = ngx_http_waf_rule_str_ct_handler;
+    } else if (p[0] == 'e' && p[1] == 'q') {
+        p += 3;
         ngx_strlow(opt->p_rule->str.data, p, opt->p_rule->str.len);
-        opt->p_rule->flag = NGX_HTTP_WAF_RULE_STR_EQ;
-    } else if (p[1] == 's' && p[2] == 'w') {
-        p += 4;
+        opt->p_rule->handler = ngx_http_waf_rule_str_eq_handler;
+    } else if (p[0] == 's' && p[1] == 'w') {
+        p += 3;
         ngx_strlow(opt->p_rule->str.data, p, opt->p_rule->str.len);
-        opt->p_rule->flag = NGX_HTTP_WAF_RULE_STR_SW;
-    } else if (p[1] == 'e' && p[2] == 'w') {
-        p += 4;
+        opt->p_rule->handler = ngx_http_waf_rule_str_startwith_handler;
+    } else if (p[0] == 'e' && p[1] == 'w') {
+        p += 3;
         ngx_strlow(opt->p_rule->str.data, p, opt->p_rule->str.len);
-        opt->p_rule->flag = NGX_HTTP_WAF_RULE_STR_EW;
-    } else if (p[1] == 'r' && p[2] == 'x') {
-        p += 4;
+        opt->p_rule->handler = ngx_http_waf_rule_str_endwith_handler;
+    } else if (p[0] == 'r' && p[1] == 'x') {
+        p += 3;
         ngx_memcpy(opt->p_rule->str.data, p, opt->p_rule->str.len);
-        opt->p_rule->flag = NGX_HTTP_WAF_RULE_STR_RX;
+        opt->p_rule->handler = ngx_http_waf_rule_str_rx_handler;
             ngx_memzero(&rc, sizeof(ngx_regex_compile_t));
 
         rc.pool = cf->pool;
@@ -1978,6 +1982,12 @@ ngx_http_waf_score_calc(ngx_http_waf_ctx_t *ctx, ngx_http_waf_rule_t *rule)
     ngx_http_waf_score_t   *ss;
     ngx_http_waf_check_t   *cs;
 
+    ctx->status |= (rule->sts & NGX_HTTP_WAF_RULE_STS_ACTION);
+
+    if (ngx_http_waf_action_is_block(ctx->status)) {
+        return;
+    }
+
     ss = ctx->scores->elts;
     cs = rule->score_checks->elts;
     for (k = 0; k < rule->score_checks->nelts; k++) {
@@ -1997,22 +2007,168 @@ ngx_http_waf_score_calc(ngx_http_waf_ctx_t *ctx, ngx_http_waf_rule_t *rule)
 }
 
 
+// rule string match handler ...
+// return NGX_OK match successful, else NGX_ERROR.
+static ngx_int_t
+ngx_http_waf_rule_str_ct_handler(ngx_http_waf_public_rule_t *pr,
+    ngx_str_t *s)
+{
+    u_char *p, *e;
+
+    if (s == NULL || s->data == NULL || s->len == 0
+        || s->len < pr->str.len) {
+        return NGX_ERROR;
+    }
+
+    e = s->data + s->len;
+
+    p = ngx_strlcasestrn(s->data, e, pr->str.data, pr->str.len - 1);
+    if (p != NULL) {
+        return NGX_OK;
+    }
+
+    return NGX_ERROR;
+}
+
+
+static ngx_int_t
+ngx_http_waf_rule_str_eq_handler(ngx_http_waf_public_rule_t *pr,
+    ngx_str_t *s)
+{
+    if (s == NULL || s->data == NULL || s->len == 0) {
+        return NGX_ERROR;
+    }
+
+    if (s->len == pr->str.len && ngx_strncasecmp(s->data,
+        pr->str.data, s->len) == 0)
+    {
+        return NGX_OK;
+    }
+
+    return NGX_ERROR;
+}
+
+
+
+static ngx_int_t
+ngx_http_waf_rule_str_startwith_handler(ngx_http_waf_public_rule_t *pr,
+    ngx_str_t *s)
+{
+    if (s == NULL || s->data == NULL || s->len == 0) {
+        return NGX_ERROR;
+    }
+
+    if (s->len > pr->str.len && ngx_strncasecmp(s->data,
+        pr->str.data, pr->str.len) == 0)
+    {
+        return NGX_OK;
+    }
+
+    return NGX_ERROR;
+}
+
+
+
+static ngx_int_t
+ngx_http_waf_rule_str_endwith_handler(ngx_http_waf_public_rule_t *pr,
+    ngx_str_t *s)
+{
+    u_char *p;
+
+    if (s == NULL || s->data == NULL || s->len == 0
+        || s->len <= pr->str.len)
+    {
+        return NGX_ERROR;
+    }
+
+    p = s->data + s->len - pr->str.len;
+    if (ngx_strncasecmp(p, pr->str.data, pr->str.len) == 0) {
+        return NGX_OK;
+    }
+
+    return NGX_ERROR;
+}
+
+
+
+static ngx_int_t
+ngx_http_waf_rule_str_rx_handler(ngx_http_waf_public_rule_t *pr,
+    ngx_str_t *s)
+{
+    ngx_int_t   n;
+
+    n = ngx_regex_exec(pr->regex, s, NULL, 0);
+    if (n == NGX_REGEX_NO_MATCHED) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+
+static void
+ngx_http_waf_rule_str_match(ngx_http_waf_ctx_t *ctx, ngx_http_waf_rule_t *rule,
+    ngx_str_t *key, ngx_str_t *val)
+{
+    // match key
+    if (key != NULL && ngx_http_waf_mz_key(rule->m_zone->flag)) {
+
+        if (rule->p_rule->handler(rule->p_rule, key) == NGX_OK) {
+            ngx_http_waf_score_calc(ctx, rule);
+        }
+    }
+
+    // match value
+    if (val != NULL && ngx_http_waf_mz_val(rule->m_zone->flag)) {
+
+        if (rule->p_rule->handler(rule->p_rule, val) == NGX_OK) {
+            ngx_http_waf_score_calc(ctx, rule);
+        }
+    }
+
+    return;
+}
+
+
+
+// exec regex zone
+// return NGX_OK matched, else NGX_ERROR.
+static ngx_int_t
+ngx_http_waf_zone_regex_exec(ngx_http_waf_zone_t *z, ngx_str_t *s)
+{
+    ngx_int_t     rc;
+
+    if (z->regex == NULL) {
+        return NGX_ERROR;
+    }
+
+    rc = ngx_regex_exec(z->regex, s, NULL, 0);
+    if (rc == NGX_REGEX_NO_MATCHED) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+
 static void
 ngx_http_waf_hash_find(ngx_http_waf_ctx_t *ctx, ngx_hash_t *hash,
-    ngx_str_t *key, ngx_str_t *val, ngx_uint_t k)
+    ngx_str_t *key, ngx_str_t *val, ngx_uint_t hk)
 {
-    ngx_uint_t            i;
-    ngx_hash_elt_t       *elt;
-    ngx_http_waf_rule_t  *r;
+    ngx_uint_t                    i, k;
+    ngx_hash_elt_t               *elt;
+    ngx_http_waf_rule_t          *r;
+    ngx_http_waf_zone_t          *mzs;
+
 
     if (hash->size == 0 || key == NULL || key->len == 0) {
         return;
     }
 
-    if (k == 0) {
-        k = ngx_hash_key_lc(key->data, key->len);
+    if (hk == 0) {
+        hk = ngx_hash_key_lc(key->data, key->len);
     }
-    elt = hash->buckets[k % hash->size];
+    elt = hash->buckets[hk % hash->size];
 
     if (elt == NULL) {
         return;
@@ -2037,21 +2193,15 @@ ngx_http_waf_hash_find(ngx_http_waf_ctx_t *ctx, ngx_hash_t *hash,
 
         if (ngx_http_waf_rule_wl_x(r->sts)) {
             // TODO: whitelist regex
-            if (0) {
-                goto next;
+            mzs = r->wl_zones->elts;
+            for (k = 0; k < r->wl_zones->nelts; k++) {
+                if (ngx_http_waf_zone_regex_exec(&mzs[k], key) == NGX_OK) {
+                    goto next;
+                }
             }
         }
 
-        if (r->p_rule->regex != NULL) {
-
-        } else {
-            if (val->len == r->p_rule->str.len &&
-                ngx_strncasecmp(val->data, r->p_rule->str.data, val->len) == 0)
-            {
-                ngx_http_waf_score_calc(ctx, r);
-            }
-        }
-
+        ngx_http_waf_rule_str_match(ctx, r, key, val);
 
     next:
 
@@ -2072,7 +2222,7 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
     ngx_table_elt_t              *header;
     ngx_http_waf_ctx_t           *ctx;
     ngx_http_waf_rule_t          *rules;
-    ngx_http_waf_zone_t    *mzs;
+    ngx_http_waf_zone_t          *mzs;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                     "http waf module score headers");
@@ -2104,32 +2254,51 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 
         for (j = 0; j < wlcf->headers->nelts; j++) {
             if (ngx_http_waf_rule_invalid(rules[j].sts)) {
-                continue;
+                // continue;
+                goto nxt_rule;
             }
 
             // wl_zones ngx_http_waf_zone_t
-            if (rules[j].sts & NGX_HTTP_WAF_RULE_STS_WL_X) {
+            if (ngx_http_waf_rule_wl_x(rules[j].sts)) {
                 mzs = rules->wl_zones->elts;
                 for (k = 0; k < rules->wl_zones->nelts; k++) {
                     // TODO: regex
+                    if (ngx_http_waf_zone_regex_exec(&mzs[k],
+                        &header[i].key) == NGX_OK)
+                    {
+                        goto nxt_rule;
+                    }
                 }
             }
 
-            fprintf(stderr, "header %s rule: %ld\n", header[i].key.data, rules[j].p_rule->id);
             if(ngx_http_waf_mz_general(rules[j].m_zone->flag)) {
                 if (NULL != ngx_strcasestrn(header[i].key.data,
                     (char*)rules[j].p_rule->str.data,
-                    rules[j].p_rule->str.len-1)) {
-                    ngx_http_waf_score_calc(ctx, &rules[j]);
+                    rules[j].p_rule->str.len-1))
+                {
+                    ngx_http_waf_rule_str_match(ctx, &rules[j],
+                        &header[i].key, &header[i].value);
+                    goto nxt_rule;
                 }
 
-                continue;
             } else if (ngx_http_waf_mz_x(rules[j].m_zone->flag)) {
                 // TODO
+                if (ngx_http_waf_zone_regex_exec(rules[j].m_zone,
+                    &header[i].key) == NGX_OK)
+                {
+                    ngx_http_waf_rule_str_match(ctx, &rules[j],
+                        &header[i].key, &header[i].value);
+                }
             } else {
+                // impossible doing here.
                 fprintf(stderr, "error 11\n");
             }
+
+            nxt_rule:
+            continue;
         }
+
+
     }
 }
 
@@ -2137,7 +2306,7 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 static ngx_int_t
 ngx_http_waf_check(ngx_http_waf_ctx_t *ctx)
 {
-    if (ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+    if (ngx_http_waf_action_is_block(ctx->status)) {
         return NGX_HTTP_FORBIDDEN;
     }
 
