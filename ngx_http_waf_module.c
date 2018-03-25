@@ -2222,6 +2222,9 @@ ngx_http_waf_score_url(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
     ngx_http_waf_rule_t          *rules;
     ngx_http_waf_zone_t          *mzs;
 
+    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "http waf module score url %V", &r->uri);
+
     ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
     if (ctx == NULL || ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
         return;
@@ -2262,7 +2265,111 @@ ngx_http_waf_score_url(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
         continue;
     }
 
+    return;
 }
+
+
+static void
+ngx_http_waf_score_args(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
+{
+    u_char                       *p, *q, *e, *s;
+    u_char                       *val_dst;
+    ngx_uint_t                    j, k;
+    ngx_str_t                     key, val;
+    ngx_http_waf_ctx_t           *ctx;
+    ngx_http_waf_rule_t          *rules;
+    ngx_http_waf_zone_t          *mzs;
+
+    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "http waf module score args %V", &r->args);
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
+    if (ctx == NULL || ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "http waf module score args block return");
+        return;
+    }
+
+    p = r->args.data;
+    e = r->args.data + r->args.len;
+    q = p;
+
+    s = ngx_pnalloc(r->pool, r->args.len);
+    if (s == NULL) {
+        return;
+    }
+
+    rules = wlcf->args->elts;
+
+    while(p < e) {
+        if (*p == '=') {
+            key.data = s;
+            key.len  = p - q;
+            ngx_unescape_uri(&s, &q, (p-q), 0);
+
+            p++;
+
+            q = p;
+        } else if (*(p+1) == '&' || p+1 == e) {
+
+            val_dst = s + key.len + 1;
+            val.data = val_dst;
+            val.len  = p - q + 1;
+
+            ngx_unescape_uri(&val_dst, &q, (p-q+1), 0);
+
+            ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                "http waf module score args: %V=%V", &key, &val);
+
+            ngx_http_waf_hash_find(ctx, &wlcf->args_var_hash, &key, &val, 0);
+
+            for (j = 0; j < wlcf->args->nelts; j++) {
+                if (ngx_http_waf_rule_invalid(rules[j].sts)) {
+                    goto nxt_rule;
+                }
+
+                if (ngx_http_waf_rule_wl_x(rules[j].sts)) {
+                    mzs = rules->wl_zones->elts;
+                    for (k = 0; k < rules->wl_zones->nelts; k++) {
+                        // TODO: regex
+                        if (ngx_http_waf_zone_regex_exec(&mzs[k],
+                            &key) == NGX_OK)
+                        {
+                            goto nxt_rule;
+                        }
+                    }
+                }
+
+                if (ngx_http_waf_mz_x(rules[j].m_zone->flag)
+                    && ngx_http_waf_zone_regex_exec(rules[j].m_zone,
+                        &key) == NGX_OK)
+                {
+                    ngx_http_waf_rule_str_match(ctx, &rules[j], &key, &val);
+                    goto nxt_rule;
+                }
+
+                if(ngx_http_waf_mz_general(rules[j].m_zone->flag)) {
+
+                    ngx_http_waf_rule_str_match(ctx, &rules[j], &key, &val);
+                }
+
+            nxt_rule:
+                continue;
+            }
+
+
+            p += 2;
+            q = p;
+
+        } else {
+            p++;
+        }
+    }
+
+    ngx_pfree(r->pool, s);
+    return;
+}
+
 
 static void
 ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
@@ -2279,6 +2386,8 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
     if (ctx == NULL || ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "http waf module score headers block return");
         return;
     }
 
@@ -2403,7 +2512,7 @@ ngx_http_waf_handler(ngx_http_request_t *r)
 
     //TODO:
     ngx_http_waf_score_url(r, wlcf);
-    // ngx_http_waf_score_args(r, wlcf);
+    ngx_http_waf_score_args(r, wlcf);
     ngx_http_waf_score_headers(r, wlcf);
 
     return ngx_http_waf_check(ctx);
