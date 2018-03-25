@@ -942,6 +942,11 @@ ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
             continue;
         }
 
+        if (checks == NULL || checks->nelts == 0) {
+            rule->sts |= NGX_HTTP_WAF_RULE_STS_SC_INVALID;
+            continue;
+        }
+
         rule->score_checks = ngx_array_create(cf->pool, 1,
             sizeof(ngx_http_waf_check_t));
         if (rule->score_checks == NULL) {
@@ -950,11 +955,6 @@ ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
 
         ss = rule->p_rule->scores->elts;
         for (j = 0; j < rule->p_rule->scores->nelts; j++) {
-
-            if (checks == NULL || checks->nelts == 0) {
-                rule->sts |= NGX_HTTP_WAF_RULE_STS_SC_INVALID;
-                continue;
-            }
 
             cs = checks->elts;
             for (k = 0; k < checks->nelts; k++) {
@@ -1113,7 +1113,7 @@ ngx_http_waf_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_http_waf_print_rule_array(conf->args, "@conf->args");
     pr_array = wmcf->args;
-    if (prev->url != NULL) {
+    if (prev->args != NULL) {
         pr_array = prev->args;
     }
 
@@ -1288,12 +1288,12 @@ ngx_http_waf_add_wl_part_handler(ngx_conf_t *cf,
     char *p = wl;
 
     ngx_array_t                **a;
-    ngx_http_waf_zone_t  *z;
+    ngx_http_waf_zone_t         *z;
 
     a = (ngx_array_t **)(p + offset);
 
     if (*a == NULL) {
-        *a = ngx_array_create(cf->pool, 1, sizeof(ngx_http_waf_zone_t));
+        *a = ngx_array_create(cf->pool, 2, sizeof(ngx_http_waf_zone_t));
         if (*a == NULL) {
             return NGX_ERROR;
         }
@@ -1503,7 +1503,7 @@ ngx_http_waf_parse_check(ngx_str_t *itm, ngx_http_waf_check_t *c)
     }
     p++;
 
-    // tag. separator: '>' or ' ' or '<'
+    // tag. separator: '>' or ' '
     s = ngx_http_waf_score_tag(p, e, "> ");
     if (s == NULL) {
         return NGX_ERROR;
@@ -2215,6 +2215,56 @@ ngx_http_waf_hash_find(ngx_http_waf_ctx_t *ctx, ngx_hash_t *hash,
 
 
 static void
+ngx_http_waf_score_url(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
+{
+    ngx_uint_t                    j, k;
+    ngx_http_waf_ctx_t           *ctx;
+    ngx_http_waf_rule_t          *rules;
+    ngx_http_waf_zone_t          *mzs;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
+    if (ctx == NULL || ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+        return;
+    }
+
+    rules = wlcf->url->elts;
+
+    ngx_http_waf_hash_find(ctx, &wlcf->url_var_hash,
+           &r->uri, &r->uri, 0);
+
+    for (j = 0; j < wlcf->url->nelts; j++) {
+        if (ngx_http_waf_rule_invalid(rules[j].sts)) {
+            continue;
+        }
+
+        if (ngx_http_waf_rule_wl_x(rules[j].sts)) {
+            mzs = rules->wl_zones->elts;
+            for (k = 0; k < rules->wl_zones->nelts; k++) {
+                if (ngx_http_waf_zone_regex_exec(&mzs[k], &r->uri) == NGX_OK) {
+                    goto nxt_rule;
+                }
+            }
+        }
+
+        if (ngx_http_waf_mz_general(rules[j].m_zone->flag)) {
+            ngx_http_waf_rule_str_match(ctx, &rules[j], NULL, &r->uri);
+        } else if (ngx_http_waf_mz_x(rules[j].m_zone->flag)) {
+            if (ngx_http_waf_zone_regex_exec(rules[j].m_zone,
+                &r->uri) == NGX_OK)
+            {
+                ngx_http_waf_rule_str_match(ctx, &rules[j], NULL, &r->uri);
+            }
+        } else {
+            assert(1);
+        }
+
+    nxt_rule:
+        continue;
+    }
+
+}
+
+static void
 ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 {
     ngx_uint_t                    i, j, k;
@@ -2272,14 +2322,9 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
             }
 
             if(ngx_http_waf_mz_general(rules[j].m_zone->flag)) {
-                if (NULL != ngx_strcasestrn(header[i].key.data,
-                    (char*)rules[j].p_rule->str.data,
-                    rules[j].p_rule->str.len-1))
-                {
-                    ngx_http_waf_rule_str_match(ctx, &rules[j],
-                        &header[i].key, &header[i].value);
-                    goto nxt_rule;
-                }
+
+                ngx_http_waf_rule_str_match(ctx, &rules[j],
+                    &header[i].key, &header[i].value);
 
             } else if (ngx_http_waf_mz_x(rules[j].m_zone->flag)) {
                 // TODO
@@ -2294,7 +2339,7 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                 fprintf(stderr, "error 11\n");
             }
 
-            nxt_rule:
+        nxt_rule:
             continue;
         }
 
@@ -2356,6 +2401,9 @@ ngx_http_waf_handler(ngx_http_request_t *r)
         ngx_http_set_ctx(r, ctx, ngx_http_waf_module);
     }
 
+    //TODO:
+    ngx_http_waf_score_url(r, wlcf);
+    // ngx_http_waf_score_args(r, wlcf);
     ngx_http_waf_score_headers(r, wlcf);
 
     return ngx_http_waf_check(ctx);
