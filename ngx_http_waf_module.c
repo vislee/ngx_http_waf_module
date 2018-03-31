@@ -2990,7 +2990,8 @@ static ngx_int_t
 ngx_http_waf_check(ngx_http_waf_ctx_t *ctx)
 {
     if (ngx_http_waf_action_is_block(ctx->status) 
-      && !ngx_http_waf_action_is_var(ctx->status)) {
+        && !ngx_http_waf_action_is_var(ctx->status))
+    {
         return NGX_HTTP_FORBIDDEN;
     }
 
@@ -3168,12 +3169,14 @@ ngx_http_waf_init(ngx_conf_t *cf)
 
     *h = ngx_http_waf_handler;
 
+
     h = ngx_array_push(&cmcf->phases[NGX_HTTP_LOG_PHASE].handlers);
     if (h == NULL) {
         return NGX_ERROR;
     }
 
     *h = ngx_http_waf_log_handler;
+
 
     return NGX_OK;
 }
