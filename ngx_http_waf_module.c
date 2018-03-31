@@ -3105,8 +3105,10 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
     buf = line;
 
     p = ngx_snprintf(buf, len, "{\"timestamp\": \"%T\", \"remote_ip\": \"%V\", "
-        "\"uri\": \"%V\", \"result\": \"%s\",",
-        ngx_time(), &r->connection->addr_text, &r->unparsed_uri,
+        "\"host\": \"%V\", \"method\": \"%V\", \"uri\": \"%V\", "
+        "\"result\": \"%s\", ",
+        ngx_time(), &r->connection->addr_text, &r->headers_in.host->value,
+        &r->method_name, &r->unparsed_uri,
         ngx_http_waf_action_is_block(ctx->status)? "BLOCK": "LOG");
 
     len -= p - buf;
