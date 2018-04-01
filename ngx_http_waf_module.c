@@ -60,7 +60,8 @@
 #define NGX_HTTP_WAF_RULE_STS_LOG      0x0001
 #define NGX_HTTP_WAF_RULE_STS_BLOCK    0x0002
 #define NGX_HTTP_WAF_RULE_STS_DROP     0x0004
-#define NGX_HTTP_WAF_RULE_STS_ALLOW    0x0008
+// #define NGX_HTTP_WAF_RULE_STS_ALLOW    0x0008
+#define NGX_HTTP_WAF_RULE_SCORE_DONE   0x0006
 #define NGX_HTTP_WAF_RULE_STS_VAR      0x2000
 
 #define NGX_HTTP_WAF_RULE_STS_SC       0x0010
@@ -76,12 +77,16 @@
         && !((sts) & NGX_HTTP_WAF_RULE_STS_ACTION))
 #define ngx_http_waf_rule_wl_x(sts)                 \
     ((sts) & NGX_HTTP_WAF_RULE_STS_WL_X)
+#define ngx_http_waf_score_is_done(flag)            \
+    ((flag) & NGX_HTTP_WAF_RULE_SCORE_DONE)
 #define ngx_http_waf_action_is_log(flag)            \
     ((flag) & NGX_HTTP_WAF_RULE_STS_LOG)
 #define ngx_http_waf_action_is_block(flag)          \
     ((flag) & NGX_HTTP_WAF_RULE_STS_BLOCK)
 #define ngx_http_waf_action_set_block(flag)         \
     ((flag) |= NGX_HTTP_WAF_RULE_STS_BLOCK)
+#define ngx_http_waf_action_is_drop(flag)           \
+    ((flag) & NGX_HTTP_WAF_RULE_STS_DROP)
 #define ngx_http_waf_action_is_var(flag)            \
     ((flag) & NGX_HTTP_WAF_RULE_STS_VAR)
 #define ngx_http_waf_aciont_set_var_block(flag)     \
@@ -398,6 +403,7 @@ static ngx_str_t    ngx_http_multi_content_disposition =
 static ngx_conf_bitmask_t  ngx_http_waf_rule_actions[] = {
     {ngx_string("LOG"),    NGX_HTTP_WAF_RULE_STS_LOG},
     {ngx_string("BLOCK"),  NGX_HTTP_WAF_RULE_STS_BLOCK},
+    {ngx_string("DROP"),   NGX_HTTP_WAF_RULE_STS_DROP},
 
     {ngx_null_string, 0}
 };
@@ -1360,6 +1366,10 @@ ngx_http_waf_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     conf->log_file = prev->log_file;
     conf->log_off  = prev->log_off;
 
+    if (conf->log_file == NULL) {
+        conf->log_off = 1;
+    }
+
     return NGX_CONF_OK;
 }
 
@@ -1765,6 +1775,8 @@ ngx_http_waf_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     if (wlcf->log_file == NULL) {
         return NGX_CONF_ERROR;
     }
+    wlcf->log_off = 0;
+
 
     return NGX_CONF_OK;
 }
@@ -2491,14 +2503,17 @@ ngx_http_waf_rule_filter(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
 
                 ngx_http_waf_rule_str_match(r, ctx, &rs[j], key, val);
             }
-        } else {
+        }
+#if (NGX_DEBUG)
+        else {
             // impossible doing here.
             assert(1);
         }
+#endif
 
     nxt_rule:
 
-        if (ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+        if (ngx_http_waf_score_is_done(ctx->status)) {
             return NGX_ABORT;
         }
 
@@ -2518,7 +2533,7 @@ ngx_http_waf_score_url(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                     "http waf module score url: %V", &r->uri);
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
-    if (ctx == NULL || ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+    if (ctx == NULL || ngx_http_waf_score_is_done(ctx->status)) {
         return;
     }
 
@@ -2545,7 +2560,7 @@ ngx_http_waf_score_args(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                     "http waf module score args: %V", &r->args);
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
-    if (ctx == NULL || ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+    if (ctx == NULL || ngx_http_waf_score_is_done(ctx->status)) {
         return;
     }
 
@@ -2605,7 +2620,7 @@ ngx_http_waf_score_args(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
             p++;
         }
 
-        if (ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+        if (ngx_http_waf_score_is_done(ctx->status)) {
             goto done;
         }
     }
@@ -2633,7 +2648,7 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                     "http waf module score headers ...");
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
-    if (ctx == NULL || ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+    if (ctx == NULL || ngx_http_waf_score_is_done(ctx->status)) {
         return;
     }
 
@@ -2659,7 +2674,7 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
         ngx_http_waf_rule_filter(r, ctx, &wlcf->headers_var_hash, wlcf->headers,
             &header[i].key, &header[i].value, header[i].hash);
 
-        if (ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+        if (ngx_http_waf_score_is_done(ctx->status)) {
             goto done;
         }
     }
@@ -2688,7 +2703,7 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
     state = sw_key;
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
-    if (ctx == NULL || ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+    if (ctx == NULL || ngx_http_waf_score_is_done(ctx->status)) {
         return;
     }
 
@@ -2766,7 +2781,7 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                 p++;
             }
 
-            if (ctx->status & NGX_HTTP_WAF_RULE_STS_BLOCK) {
+            if (ngx_http_waf_score_is_done(ctx->status)) {
                 goto done;
             }
         }
@@ -2990,9 +3005,12 @@ static ngx_int_t
 ngx_http_waf_check(ngx_http_waf_ctx_t *ctx)
 {
     if (ngx_http_waf_action_is_block(ctx->status) 
-        && !ngx_http_waf_action_is_var(ctx->status))
-    {
+      && !ngx_http_waf_action_is_var(ctx->status)) {
         return NGX_HTTP_FORBIDDEN;
+    }
+
+    if (ngx_http_waf_action_is_drop(ctx->status)) {
+        return NGX_HTTP_CLOSE;
     }
 
     return NGX_DECLINED;
