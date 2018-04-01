@@ -288,10 +288,11 @@ typedef struct {
 
 
 typedef struct ngx_http_waf_ctx_s {
-    ngx_array_t       *scores; /* ngx_http_waf_score_t */
-    ngx_uint_t         status;
-    unsigned           wait_body:1;
-    unsigned           check_done:1;
+    ngx_array_t             *scores; /* ngx_http_waf_score_t */
+    ngx_http_waf_log_ctx_t  *logc;
+    ngx_uint_t               status;
+    unsigned                 wait_body:1;
+    unsigned                 check_done:1;
 } ngx_http_waf_ctx_t;
 
 
@@ -455,11 +456,17 @@ static ngx_conf_bitmask_t  ngx_http_waf_rule_zone_item[] = {
     { ngx_string("BODY"),
       NGX_HTTP_WAF_MZ_G_BODY|NGX_HTTP_WAF_MZ_KEY|NGX_HTTP_WAF_MZ_VAL },
 
+    { ngx_string("@BODY"),
+      NGX_HTTP_WAF_MZ_G_BODY|NGX_HTTP_WAF_MZ_KEY },
+
+    { ngx_string("#BODY"),
+      NGX_HTTP_WAF_MZ_G_BODY|NGX_HTTP_WAF_MZ_VAL },
+
     { ngx_string("#RAW_BODY"),
       NGX_HTTP_WAF_MZ_G_RAW_BODY|NGX_HTTP_WAF_MZ_VAL },
 
-    { ngx_string("#FILE_NAME"),
-      NGX_HTTP_WAF_MZ_G_FILE_NAME|NGX_HTTP_WAF_MZ_VAL },
+    // { ngx_string("#FILE_NAME"),
+    //   NGX_HTTP_WAF_MZ_G_FILE_NAME|NGX_HTTP_WAF_MZ_VAL },
 
     { ngx_string("V_BODY:"),
       NGX_HTTP_WAF_MZ_VAR_BODY|NGX_HTTP_WAF_MZ_VAL },
@@ -1113,8 +1120,8 @@ ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
 
                 break;
             }
-
         }
+
         if (rule->score_checks == NULL || rule->score_checks->nelts == 0) {
             rule->sts |= NGX_HTTP_WAF_RULE_STS_SC_INVALID;
         }
@@ -2164,10 +2171,22 @@ ngx_http_waf_score_calc(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
     if (ngx_http_waf_action_is_block(ctx->status)) {
         ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
             "ngx http waf score calc ctx block return ...");
+
+        // TODO: logging
+        ctx->logc = ngx_pcalloc(r->pool, sizeof(ngx_http_waf_log_ctx_t));
+        if (ctx->logc != NULL) {
+            ctx->logc->rule = rule;
+            ctx->logc->str = str;
+        }
+
         return;
     }
 
     wlcf = ngx_http_get_module_loc_conf(r, ngx_http_waf_module);
+
+#if (NGX_DEBUG)
+    assert(ctx->scores == NULL);
+#endif
 
     ss = ctx->scores->elts;
     cs = rule->score_checks->elts;
@@ -3048,21 +3067,24 @@ ngx_http_waf_handler(ngx_http_request_t *r)
         ctx->wait_body  = 1;
         ctx->check_done = 0;
 
-        ctx->scores = ngx_array_create(r->pool, wlcf->check_rules->nelts,
-            sizeof(ngx_http_waf_score_t));
-        if (ctx->scores == NULL) {
-            return NGX_ERROR;
-        }
-
-        checks = wlcf->check_rules->elts;
-        for (i = 0; i < wlcf->check_rules->nelts; i++) {
-            sc = ngx_array_push(ctx->scores);
-            if (sc == NULL) {
+        // TODO: wlcf->check_rules may be null
+        if (wlcf->check_rules != NULL && wlcf->check_rules->nelts > 0) {
+            ctx->scores = ngx_array_create(r->pool, wlcf->check_rules->nelts,
+                sizeof(ngx_http_waf_score_t));
+            if (ctx->scores == NULL) {
                 return NGX_ERROR;
             }
-            sc->tag = checks[i].tag;
-            sc->score = 0;
-            sc->log_ctx = NULL;
+
+            checks = wlcf->check_rules->elts;
+            for (i = 0; i < wlcf->check_rules->nelts; i++) {
+                sc = ngx_array_push(ctx->scores);
+                if (sc == NULL) {
+                    return NGX_ERROR;
+                }
+                sc->tag = checks[i].tag;
+                sc->score = 0;
+                sc->log_ctx = NULL;
+            }
         }
 
         ngx_http_set_ctx(r, ctx, ngx_http_waf_module);
@@ -3132,36 +3154,54 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
     len -= p - buf;
     buf = p;
 
-    scs = ctx->scores->elts;
-    for (i = 0; i < ctx->scores->nelts; i++) {
-        p = ngx_snprintf(buf, len, "\"%V_total\": \"%ui\", ",
-            &scs[i].tag, scs[i].score);
-
-        len -= p - buf;
-        buf = p;
-
-        if (scs[i].log_ctx == NULL || scs[i].log_ctx->nelts == 0) {
-            continue;
-        }
-
-        logc = scs[i].log_ctx->elts;
-        for (j = 0; j < scs[i].log_ctx->nelts; j++) {
-            lc = &logc[j];
-
-            p = ngx_snprintf(buf, len, "\"rule_%V_%d_score\": \"%ui\", "
-                "\"rule_%V_%d_zflag\": \"0x%Xd\", "
-                "\"rule_%V_%d_zname\": \"%V\", "
-                "\"rule_%V_%d_str\": \"%V\", "
-                "\"match_%V_%d_val\": \"%V\", ",
-                &scs[i].tag, lc->rule->p_rule->id, lc->score,
-                &scs[i].tag, lc->rule->p_rule->id, lc->rule->m_zone->flag,
-                &scs[i].tag, lc->rule->p_rule->id, &lc->rule->m_zone->name,
-                &scs[i].tag, lc->rule->p_rule->id, &lc->rule->p_rule->str,
-                &scs[i].tag, lc->rule->p_rule->id, &lc->str);
+    if (ctx->scores != NULL) {
+        scs = ctx->scores->elts;
+        for (i = 0; i < ctx->scores->nelts; i++) {
+            p = ngx_snprintf(buf, len, "\"%V_total\": \"%ui\", ",
+                &scs[i].tag, scs[i].score);
 
             len -= p - buf;
             buf = p;
+
+            if (scs[i].log_ctx == NULL || scs[i].log_ctx->nelts == 0) {
+                continue;
+            }
+
+            logc = scs[i].log_ctx->elts;
+            for (j = 0; j < scs[i].log_ctx->nelts; j++) {
+                lc = &logc[j];
+
+                p = ngx_snprintf(buf, len, "\"rule_%V_%d_score\": \"%ui\", "
+                    "\"rule_%V_%d_zflag\": \"0x%Xd\", "
+                    "\"rule_%V_%d_zname\": \"%V\", "
+                    "\"rule_%V_%d_str\": \"%V\", "
+                    "\"match_%V_%d_val\": \"%V\", ",
+                    &scs[i].tag, lc->rule->p_rule->id, lc->score,
+                    &scs[i].tag, lc->rule->p_rule->id, lc->rule->m_zone->flag,
+                    &scs[i].tag, lc->rule->p_rule->id, &lc->rule->m_zone->name,
+                    &scs[i].tag, lc->rule->p_rule->id, &lc->rule->p_rule->str,
+                    &scs[i].tag, lc->rule->p_rule->id, &lc->str);
+
+                len -= p - buf;
+                buf = p;
+            }
         }
+    }
+    // TODO: log
+    if (ctx->logc != NULL) {
+        p = ngx_snprintf(buf, len, "\"rule_NIL_%d_score\": \"0\", "
+            "\"rule_NIL_%d_zflag\": \"0x%Xd\", "
+            "\"rule_NIL_%d_zname\": \"%V\", "
+            "\"rule_NIL_%d_str\": \"%V\", "
+            "\"match_%V_%d_val\": \"%V\", ",
+            ctx->logc->rule->p_rule->id,
+            ctx->logc->rule->p_rule->id, ctx->logc->rule->m_zone->flag,
+            ctx->logc->rule->p_rule->id, &ctx->logc->rule->m_zone->name,
+            ctx->logc->rule->p_rule->id, &ctx->logc->rule->p_rule->str,
+            ctx->logc->rule->p_rule->id, &ctx->logc->str);
+
+            len -= p - buf;
+            buf = p;
     }
 
     // buf - 2 for cover ", "
@@ -3196,7 +3236,6 @@ ngx_http_waf_init(ngx_conf_t *cf)
     }
 
     *h = ngx_http_waf_log_handler;
-
 
     return NGX_OK;
 }
