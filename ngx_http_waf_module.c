@@ -127,6 +127,7 @@
 
 
 // #define NGX_HTTP_WAF_MZ_NIL           0x2000
+#define NGX_HTTP_WAF_MZ_KV               0xc000
 // specify match key
 #define NGX_HTTP_WAF_MZ_KEY              0x4000
 // specify match val
@@ -326,8 +327,10 @@ struct ngx_http_waf_rule_parser_s {
 
 
 #define ngx_http_waf_match_zone_ge(one, two)    \
-    (( ((one)->flag << 4) & (two)->flag) || (((one)->flag << 8) & (two)->flag) \
-    || ((one)->flag == (two)->flag && (one)->name.len == (two)->name.len \
+    ( (((one)->flag & NGX_HTTP_WAF_MZ_KV) == ((two)->flag & NGX_HTTP_WAF_MZ_KV)\
+    || (((two)->flag & NGX_HTTP_WAF_MZ_KV) == 0)) && (  \
+    (((one)->flag << 4) & (two)->flag ) || (((one)->flag << 8) & (two)->flag)) \
+    || ((one)->flag == (two)->flag && (one)->name.len == (two)->name.len       \
     && ngx_strncmp((one)->name.data, (two)->name.data, (one)->name.len) == 0))
 
 static ngx_int_t ngx_http_waf_init(ngx_conf_t *cf);
@@ -424,7 +427,7 @@ static ngx_conf_bitmask_t  ngx_http_waf_rule_zone_item[] = {
       NGX_HTTP_WAF_MZ_X_URL|NGX_HTTP_WAF_MZ_VAL },
 
     { ngx_string("ARGS"),
-      NGX_HTTP_WAF_MZ_G_ARGS|NGX_HTTP_WAF_MZ_KEY|NGX_HTTP_WAF_MZ_VAL },
+      NGX_HTTP_WAF_MZ_G_ARGS|NGX_HTTP_WAF_MZ_KV },
 
     { ngx_string("@ARGS"),
       (NGX_HTTP_WAF_MZ_G_ARGS|NGX_HTTP_WAF_MZ_KEY) },
@@ -439,7 +442,7 @@ static ngx_conf_bitmask_t  ngx_http_waf_rule_zone_item[] = {
       NGX_HTTP_WAF_MZ_X_ARGS|NGX_HTTP_WAF_MZ_VAL },
 
     { ngx_string("HEADERS"),
-      NGX_HTTP_WAF_MZ_G_HEADERS|NGX_HTTP_WAF_MZ_KEY|NGX_HTTP_WAF_MZ_VAL },
+      NGX_HTTP_WAF_MZ_G_HEADERS|NGX_HTTP_WAF_MZ_KV },
 
     { ngx_string("@HEADERS"),
       (NGX_HTTP_WAF_MZ_G_HEADERS|NGX_HTTP_WAF_MZ_KEY) },
@@ -454,7 +457,7 @@ static ngx_conf_bitmask_t  ngx_http_waf_rule_zone_item[] = {
       NGX_HTTP_WAF_MZ_X_HEADERS|NGX_HTTP_WAF_MZ_VAL },
 
     { ngx_string("BODY"),
-      NGX_HTTP_WAF_MZ_G_BODY|NGX_HTTP_WAF_MZ_KEY|NGX_HTTP_WAF_MZ_VAL },
+      NGX_HTTP_WAF_MZ_G_BODY|NGX_HTTP_WAF_MZ_KV },
 
     { ngx_string("@BODY"),
       NGX_HTTP_WAF_MZ_G_BODY|NGX_HTTP_WAF_MZ_KEY },
@@ -853,6 +856,7 @@ ngx_http_waf_print_public_rule(ngx_http_waf_public_rule_t *br)
 
     if (br->scores == NULL) return;
 
+    fprintf(stderr, "    scores:%p\n", br->scores);
     scs = br->scores->elts;
     for (x = 0; x < br->scores->nelts; x++) {
         sc = &scs[x];
@@ -2166,11 +2170,24 @@ ngx_http_waf_score_calc(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
     ngx_http_waf_log_ctx_t    *log;
     ngx_http_waf_loc_conf_t   *wlcf;
 
+
+    ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+        "ngx http waf score calc rule id: %i addr:%p",
+        rule->p_rule->id, rule->p_rule->scores);
+
+#if (NGX_DEBUG)
+    assert((rule->sts == 0 && rule->p_rule->scores != NULL));
+#endif
+
     ctx->status |= (rule->sts & NGX_HTTP_WAF_RULE_STS_ACTION);
 
     if (ngx_http_waf_action_is_block(ctx->status)) {
         ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
             "ngx http waf score calc ctx block return ...");
+
+        if (rule->p_rule->scores != NULL) {
+            return;
+        }
 
         // TODO: logging
         ctx->logc = ngx_pcalloc(r->pool, sizeof(ngx_http_waf_log_ctx_t));
@@ -2185,7 +2202,7 @@ ngx_http_waf_score_calc(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
     wlcf = ngx_http_get_module_loc_conf(r, ngx_http_waf_module);
 
 #if (NGX_DEBUG)
-    assert(ctx->scores == NULL);
+    assert((ctx->scores != NULL));
 #endif
 
     ss = ctx->scores->elts;
@@ -2526,18 +2543,23 @@ ngx_http_waf_rule_filter(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
 #if (NGX_DEBUG)
         else {
             // impossible doing here.
-            assert(1);
+            assert(0);
         }
 #endif
 
     nxt_rule:
 
         if (ngx_http_waf_score_is_done(ctx->status)) {
+            ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                "ngx http waf rule filter handler block");
             return NGX_ABORT;
         }
 
         continue;
     }
+
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+        "ngx http waf rule filter handler done");
 
     return NGX_OK;
 }
@@ -3069,9 +3091,14 @@ ngx_http_waf_handler(ngx_http_request_t *r)
 
         // TODO: wlcf->check_rules may be null
         if (wlcf->check_rules != NULL && wlcf->check_rules->nelts > 0) {
+            // todo
+            ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "http waf handler create ctx->scores");
             ctx->scores = ngx_array_create(r->pool, wlcf->check_rules->nelts,
                 sizeof(ngx_http_waf_score_t));
             if (ctx->scores == NULL) {
+                ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "http waf handler create ctx->scores error");
                 return NGX_ERROR;
             }
 
