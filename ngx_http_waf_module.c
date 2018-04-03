@@ -328,11 +328,8 @@ struct ngx_http_waf_rule_parser_s {
 
 
 #define ngx_http_waf_match_zone_ge(one, two)  (                               \
-  ( \
-    ( (((one)->flag&NGX_HTTP_WAF_MZ_KV) == ((two)->flag&NGX_HTTP_WAF_MZ_KV))  \
-    || (((two)->flag&NGX_HTTP_WAF_MZ_KV) == 0) )                              \
-    && ( (((one)->flag<<4)&(two)->flag) || (((one)->flag<<8)&(two)->flag) )   \
-  ) \
+    ( (((one)->flag&NGX_HTTP_WAF_MZ_KV) & ((two)->flag&NGX_HTTP_WAF_MZ_KV))   \
+    && ((((one)->flag<<4)&(two)->flag) || (((one)->flag<<8)&(two)->flag)) )   \
     || ( ((one)->flag == (two)->flag) && (one)->name.len == (two)->name.len   \
     && ngx_strncmp((one)->name.data, (two)->name.data, (one)->name.len) == 0 )\
 )
@@ -3010,7 +3007,7 @@ void ngx_http_waf_body_handler(ngx_http_request_t *r)
                     "http waf body handler read body done!");
 
     if (ctx->interrupt) {
-        ctx->interrupt = 1;
+        ctx->interrupt = 0;
         ngx_http_core_run_phases(r);
     }
 
@@ -3105,6 +3102,7 @@ ngx_http_waf_handler(ngx_http_request_t *r)
 
         ctx->wait_body  = 1;
         ctx->check_done = 0;
+        ctx->interrupt  = 1;
 
         // TODO: wlcf->check_rules may be null
         if (wlcf->check_rules != NULL && wlcf->check_rules->nelts > 0) {
