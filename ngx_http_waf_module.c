@@ -575,12 +575,12 @@ static ngx_http_waf_add_wl_part_t  ngx_http_waf_conf_add_wl[] = {
 
 static ngx_http_waf_rule_parser_t  ngx_http_waf_rule_parser_item[] = {
     {ngx_string("id:"),     ngx_http_waf_parse_rule_id},
-    {ngx_string("sc:"),     ngx_http_waf_parse_rule_score},
+    {ngx_string("s:"),      ngx_http_waf_parse_rule_score},
     {ngx_string("str:"),    ngx_http_waf_parse_rule_str},
     {ngx_string("libinj:"), ngx_http_waf_parse_rule_libinj},
     {ngx_string("z:"),      ngx_http_waf_parse_rule_zone},
     {ngx_string("wl:"),     ngx_http_waf_parse_rule_whitelist},
-    {ngx_string("note:"),    ngx_http_waf_parse_rule_note},
+    {ngx_string("note:"),   ngx_http_waf_parse_rule_note},
 
     {ngx_null_string, NULL}
 };
@@ -3265,16 +3265,17 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
     }
     // TODO: log
     if (ctx->logc != NULL) {
-        p = ngx_snprintf(buf, len, "\"rule_NIL_%d_score\": \"0\", "
-            "\"rule_NIL_%d_zflag\": \"0x%Xd\", "
-            "\"rule_NIL_%d_zname\": \"%V\", "
-            "\"rule_NIL_%d_str\": \"%V\", "
-            "\"match_%V_%d_val\": \"%V\", ",
+        p = ngx_snprintf(buf, len, "\"rule_BLOCK_%d_score\": \"0\", "
+            "\"rule_BLOCK_%d_zflag\": \"0x%Xd\", "
+            "\"rule_BLOCK_%d_zname\": \"%V\", "
+            "\"rule_BLOCK_%d_str\": \"%V\", "
+            "\"match_BLOCK_%d_val\": \"%V\", ",
             ctx->logc->rule->p_rule->id,
             ctx->logc->rule->p_rule->id, ctx->logc->rule->m_zone->flag,
             ctx->logc->rule->p_rule->id, &ctx->logc->rule->m_zone->name,
             ctx->logc->rule->p_rule->id, &ctx->logc->rule->p_rule->str,
-            ctx->logc->rule->p_rule->id, &ctx->logc->str);
+            ctx->logc->rule->p_rule->id, &ctx->logc->str
+            );
 
             len -= p - buf;
             buf = p;
