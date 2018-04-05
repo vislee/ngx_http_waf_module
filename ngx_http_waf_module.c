@@ -837,8 +837,8 @@ ngx_http_waf_vars_in_hash(ngx_conf_t *cf, ngx_array_t *a,
 
     hash.hash = h;
     hash.key = ngx_hash_key_lc;
-    hash.max_size = 512;
-    hash.bucket_size = ngx_align(64, ngx_cacheline_size);
+    hash.max_size = 1024;
+    hash.bucket_size = ngx_align(512, ngx_cacheline_size);
     hash.name = "waf_vars_in_hash";
     hash.pool = cf->pool;
     hash.temp_pool = NULL;
