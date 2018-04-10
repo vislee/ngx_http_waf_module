@@ -1048,6 +1048,8 @@ ngx_http_waf_merge_rule_array(ngx_conf_t *cf, ngx_array_t *wl,
                 return NGX_ERROR;
             }
 
+            ngx_memzero(rule, sizeof(ngx_http_waf_rule_t));
+
             rule->p_rule = prev_rules[i].p_rule;
             rule->m_zone = prev_rules[i].m_zone;
         }
@@ -1491,6 +1493,8 @@ ngx_http_waf_add_rule_handler(ngx_conf_t *cf, ngx_http_waf_public_rule_t *pr,
         return NGX_ERROR;
     }
 
+    ngx_memzero(r, sizeof(ngx_http_waf_rule_t));
+
     r->m_zone = mz;
     r->p_rule = pr;
 
@@ -1552,6 +1556,8 @@ ngx_http_waf_add_whitelist(ngx_conf_t *cf, ngx_http_waf_rule_opt_t *opt,
         if (wl == NULL) {
             return NGX_ERROR;
         }
+
+        ngx_memzero(wl, sizeof(ngx_http_waf_whitelist_t));
 
         wl->id = id[i];
         if (opt->m_zones == NULL || opt->m_zones->nelts == 0) {
@@ -1761,6 +1767,8 @@ ngx_http_waf_check_rule(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     if (check == NULL) {
         return NGX_CONF_ERROR;
     }
+
+    ngx_memzero(check, sizeof(ngx_http_waf_check_t));
 
     check->idx = wlcf->check_rules->nelts - 1;
 
@@ -1983,6 +1991,8 @@ ngx_http_waf_parse_rule_score(ngx_conf_t *cf, ngx_str_t *str,
         }
         sc->score = ngx_atoi(p, s - p);
         p = s + 1;
+
+        sc->log_ctx = NULL;
     }
 
     return NGX_OK;
@@ -2056,6 +2066,8 @@ ngx_http_waf_parse_rule_zone(ngx_conf_t *cf, ngx_str_t *str,
         if (zone == NULL) {
             return NGX_ERROR;
         }
+
+        ngx_memzero(zone, sizeof(ngx_http_waf_zone_t));
 
         zone->flag = flag;
 
