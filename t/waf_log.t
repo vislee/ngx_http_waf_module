@@ -21,8 +21,6 @@ use Test::Nginx;
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
-my $modules = $ENV{TEST_NGINX_MODULES};
-
 my $t = Test::Nginx->new()->plan(2)
     ->write_file_expand('nginx.conf', <<'EOF');
 
@@ -30,7 +28,7 @@ my $t = Test::Nginx->new()->plan(2)
 
 daemon off;
 
-load_module $modules/ngx_http_waf_module.so;
+load_module /tmp/nginx/modules/ngx_http_waf_module.so;
 
 events {
 }

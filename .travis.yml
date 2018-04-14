@@ -26,12 +26,13 @@ script:
   - ls -ltra
   - cd ../nginx
   - ls -ltra
-  - ./auto/configure --add-dynamic-module=../ngx_http_waf_module --with-compat
+  - ./auto/configure --prefix=/tmp/nginx --add-dynamic-module=../ngx_http_waf_module --with-compat
     --with-cc-opt="-fprofile-arcs -ftest-coverage" --with-ld-opt="-lgcov"
   - make -j
+  - make install
   - cd ../nginx-tests
   - ls -ltra
-  - TEST_NGINX_MODULES=../nginx/objs/ TEST_NGINX_BINARY=../nginx/objs/nginx prove .
+  - TEST_NGINX_BINARY=/tmp/nginx/sbin/nginx prove .
   - cd ../nginx
   - sudo lcov --compat-libtool --directory ./objs/addon/ngx_http_waf_module/ --capture
     --output-file ./coverage.info --base-directory .
