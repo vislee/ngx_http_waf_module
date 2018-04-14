@@ -3,14 +3,14 @@ language: c
 os: linux
 
 compiler:
-  - clang
+  # - clang
+  - gcc
 
 addons:
   apt:
     packages:
     - cpanminus
     - lcov
-    - gcc
 
 install:
   - gem install coveralls-lcov
@@ -33,8 +33,6 @@ script:
   - ls -ltra
   - TEST_NGINX_MODULES=../nginx/objs/ TEST_NGINX_BINARY=../nginx/objs/nginx prove .
   - cd ../nginx
-  - ls -ltra
-  - ls -ltra ./objs/addon/
   - sudo lcov --compat-libtool --directory ./objs/addon/ngx_http_waf_module/ --capture
     --output-file ./coverage.info --base-directory .
   - ls -ltra
