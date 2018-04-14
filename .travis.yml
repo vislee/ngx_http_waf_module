@@ -32,11 +32,11 @@ script:
   - ls -ltra
   - TEST_NGINX_BINARY=/tmp/nginx/sbin/nginx prove .
   - cd ../nginx
+  - sudo lcov --compat-libtool --directory ./objs/addon/ngx-http-waf-module/ --capture
+    --output-file ./coverage.info --base-directory .
   - ls -ltra
 
 after_success:
-  - lcov --directory ./objs/addon/ngx-http-waf-module/ --capture
-    --output-file ./coverage.info --base-directory .
   - coveralls-lcov ./coverage.info
   - genhtml -s -o /tmp/waf_html coverage.info
 
