@@ -1,6 +1,7 @@
 Name
 ====
 
+[![travis-ci](https://travis-ci.org/vislee/ngx_http_waf_module.svg?branch=master)](https://travis-ci.org/vislee/ngx_http_waf_module)
 
 
 Copyright and License
