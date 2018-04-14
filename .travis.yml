@@ -16,8 +16,10 @@ install:
   - git clone https://github.com/nginx/nginx-tests.git
   - git clone https://github.com/vislee/ngx_http_waf_module.git
   - sudo cpanm -v --notest Test::Nginx
+  - ls -ltr
 
 script:
+  - ls -ltr
   - cd ./nginx
   - ./auto/configure --prefix=/tmp/nginx --add-dynamic-module=../ngx_http_waf_module --with-compat
   - make
