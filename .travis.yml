@@ -39,5 +39,4 @@ after_success:
     --output-file ./coverage.info --base-directory .
   - coveralls-lcov ./coverage.info
   - genhtml -s -o /tmp/waf_html coverage.info
-  - ls -ltra
 
