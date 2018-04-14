@@ -12,15 +12,13 @@ addons:
     - cpanminus
 
 install:
-  - git clone https://github.com/nginx/nginx.git
-  - git clone https://github.com/nginx/nginx-tests.git
-  - git clone https://github.com/vislee/ngx_http_waf_module.git
+  - git clone https://github.com/nginx/nginx.git  ../nginx
+  - git clone https://github.com/nginx/nginx-tests.git  ../nginx-tests
   - sudo cpanm -v --notest Test::Nginx
-  - ls -ltr
 
 script:
   - ls -ltr
-  - cd ./nginx
+  - cd ../nginx
   - ./auto/configure --prefix=/tmp/nginx --add-dynamic-module=../ngx_http_waf_module --with-compat
   - make
   - cd ..
