@@ -9,12 +9,17 @@ addons:
   apt:
     packages:
     - cpanminus
+    - lcov
 
 install:
+  - gem install coveralls-lcov
   - git clone https://github.com/nginx/nginx.git  ../nginx
   - git clone https://github.com/nginx/nginx-tests.git  ../nginx-tests
   - rm -f ../nginx-tests/*.t
   - cp ./t/*.t ../nginx-tests/
+
+before_script:
+  - lcov --directory ../nginx --zerocounters
 
 script:
   - ls -ltra
@@ -26,3 +31,10 @@ script:
   - cd ../nginx-tests
   - ls -ltra
   - TEST_NGINX_BINARY=/tmp/nginx/sbin/nginx prove .
+  - cd ../nginx
+  - ls -ltra
+
+after_success:
+  - lcov --directory ./objs/addon/ngx-http-waf-module/ --capture
+    --output-file waf.info --base-directory .
+  - coveralls-lcov waf.info
