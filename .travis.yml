@@ -17,9 +17,12 @@ install:
   - sudo cpanm -v --notest Test::Nginx
 
 script:
-  - ls -ltr
+  - ls -ltra
   - cd ../nginx
+  - ls -ltra
   - ./auto/configure --prefix=/tmp/nginx --add-dynamic-module=../ngx_http_waf_module --with-compat
-  - make
+  - make -j
+  - make install
   - cd ..
+  - ls -ltra
   - TEST_NGINX_BINARY=/tmp/nginx/sbin/nginx prove ./ngx_http_waf_module/t/waf.t
