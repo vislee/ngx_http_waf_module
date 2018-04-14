@@ -14,7 +14,8 @@ addons:
 install:
   - git clone https://github.com/nginx/nginx.git  ../nginx
   - git clone https://github.com/nginx/nginx-tests.git  ../nginx-tests
-  - sudo cpanm -v --notest Test::Nginx
+  - rm -f ../nginx-tests/*.t
+  - cp ./t/*.t ../nginx-tests/
 
 script:
   - ls -ltra
@@ -23,6 +24,6 @@ script:
   - ./auto/configure --prefix=/tmp/nginx --add-dynamic-module=../ngx_http_waf_module --with-compat
   - make -j
   - make install
-  - cd ..
+  - cd ../nginx-tests
   - ls -ltra
-  - TEST_NGINX_BINARY=/tmp/nginx/sbin/nginx prove ./ngx_http_waf_module/t/waf.t
+  - TEST_NGINX_BINARY=/tmp/nginx/sbin/nginx prove .
