@@ -2595,6 +2595,10 @@ ngx_http_waf_rule_filter(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
 
     ngx_http_waf_hash_find(r, ctx, hash, key, val, key_hash);
 
+    if (rule == NULL) {
+        goto done;
+    }
+
     rs = rule->elts;
     for (j = 0; j < rule->nelts; j++) {
         if (ngx_http_waf_rule_invalid(rs[j].sts)) {
@@ -2646,6 +2650,8 @@ ngx_http_waf_rule_filter(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
 
         continue;
     }
+
+done:
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
         "ngx http waf rule filter handler done");
@@ -3064,6 +3070,9 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
             if (is_file) {
                 ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                   "http waf module score body multipart file: [%V]", &content);
+                // TODO: filter file content
+                ngx_http_waf_rule_filter(r, ctx, NULL, NULL,
+                    NULL, &content, 0);
             }
 
             key.len     = 0;
