@@ -1819,6 +1819,10 @@ ngx_http_waf_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     value = cf->args->elts;
 
+    if (wlcf->log_file != NULL) {
+        return "is duplicate";
+    }
+
     if (ngx_strcmp(value[1].data, "off") == 0) {
         wlcf->log_off = 1;
         return NGX_CONF_OK;
