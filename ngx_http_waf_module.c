@@ -2836,7 +2836,7 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 {
     u_char                       *p, *q, *e, *t;
     ngx_str_t                     body, *type, key, val, content, boundary;
-    ngx_int_t                     is_file, tmp_buf, over;
+    ngx_int_t                     is_file, over;
     ngx_chain_t                  *cl;
     ngx_http_waf_ctx_t           *ctx;
 
@@ -2873,12 +2873,10 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 
     cl = r->request_body->bufs;
     if (cl->next == NULL) {
-        tmp_buf = 0;
         body.data = cl->buf->pos;
         body.len  = cl->buf->last - cl->buf->pos;
 
     } else {
-        tmp_buf = 0;
         body.len = 0;
 
         for (; cl; cl = cl->next) {
@@ -2888,7 +2886,6 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
         if (body.len > 0) {
             body.data = ngx_pcalloc(r->pool, body.len + 1);
             if (body.data != NULL) {
-                tmp_buf = 1;
                 p = body.data;
                 for (cl = r->request_body->bufs; cl; cl = cl->next) {
                     p = ngx_copy(p, cl->buf->pos, cl->buf->last - cl->buf->pos);
