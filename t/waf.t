@@ -39,7 +39,7 @@ events {
 http {
     %%TEST_GLOBALS_HTTP%%
 
-    security_rule id:1001 "str:sw@/test" z:#URL;
+    security_rule id:1001 "str:sw@/test" z:#URL "note:test url";
     security_rule id:1002 "str:sw@/hello" "z:X_URL:/hello/[a-z]{3,5}";
 
     security_rule id:1010 "str:ct@testct" "z:V_ARGS:teststr";
@@ -49,6 +49,9 @@ http {
     security_rule id:1014 "str:rx@test-[a-z]{3}-done" "z:V_ARGS:teststr";
     security_rule id:1015 "libinj:sql" "z:V_ARGS:teststr";
     security_rule id:1016 "libinj:xss" "z:V_ARGS:teststr";
+    security_rule id:1017 "str:ge@def" "z:V_ARGS:testge";
+    security_rule id:1018 "str:le@def" "z:V_ARGS:testle";
+
 
 
     security_rule id:2001 "str:eq@argskv" "z:ARGS";
@@ -134,7 +137,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(76);
+$t->try_run('no waf')->plan(85);
 
 ###############################################################################
 
@@ -174,6 +177,25 @@ like(http_get("/?teststr=\"/><script>alert(1)</script><!-"),
     qr/403 Forbidden/, 'waf_1016: test xss block');
 like(http_get("/?teststr=1"),
     qr/200 OK/, 'waf_1016: test xss ok');
+
+like(http_get("/?testge=defa"),
+    qr/403 Forbidden/, 'waf_1017: test gt block');
+like(http_get("/?testge=def"),
+    qr/403 Forbidden/, 'waf_1017: test ge block');
+like(http_get("/?testge=e"),
+    qr/403 Forbidden/, 'waf_1017: test ge block');
+like(http_get("/?testge=d"),
+    qr/200 OK/, 'waf_1017: test ge ok');
+
+like(http_get("/?testle=de"),
+    qr/403 Forbidden/, 'waf_1018: test lt block');
+like(http_get("/?testle=def"),
+    qr/403 Forbidden/, 'waf_1018: test le block');
+like(http_get("/?testle=d"),
+    qr/403 Forbidden/, 'waf_1018: test lt block');
+like(http_get("/?testle=e"),
+    qr/200 OK/, 'waf_1018: test le ok');
+
 like(http_get("/?teststr=hello world"),
     qr/200 OK/, 'waf_10xx: test str match ok');
 like(http_get("/?aaaaaa=hello world"),
@@ -266,6 +288,25 @@ like(http(
     "foo: headervbar" . CRLF .
     CRLF
 ), qr/403 Forbidden/, 'waf_3004: test headers sepckey block');
+like(http(
+    "GET / HTTP/1.0" . CRLF .
+    "Host: localhost" . CRLF .
+    "aaa: bbbb" . CRLF .
+    "ccc: dddd" . CRLF .
+    "ddd: eeee" . CRLF .
+    "eee: ffff" . CRLF .
+    "fff: gggg" . CRLF .
+    "ggg: hhhh" . CRLF .
+    "hhh: iiii" . CRLF .
+    "iii: jjjj" . CRLF .
+    "abcd: aa" . CRLF .
+    "defg: bb" . CRLF .
+    "hijk: cc" . CRLF .
+    "xyz: xxx" . CRLF .
+    "x_y_z: yyy" . CRLF .
+    "foo: headervbar" . CRLF .
+    CRLF
+), qr/403 Forbidden/, 'waf_3004: test multi headers sepckey block');
 like(http(
     "GET / HTTP/1.0" . CRLF .
     "Host: localhost" . CRLF .
@@ -418,7 +459,7 @@ like(http(
 like(http(
     "POST / HTTP/1.1" . CRLF .
     "Host: localhost" . CRLF .
-    "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Type: multipart/form-data; boundary= ----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
     "Content-Length: 430" . CRLF .
     "Connection: close" . CRLF .
     CRLF .
@@ -442,7 +483,7 @@ like(http(
     "POST / HTTP/1.1" . CRLF .
     "Host: localhost" . CRLF .
     "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Length: 2100" . CRLF .
+    "Content-Length: 3700" . CRLF .
     "Connection: close" . CRLF .
     CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
@@ -453,6 +494,26 @@ like(http(
     "Content-Disposition: form-data; name=\"uploaded\"; filename=aaa; filename=\"empty\"" . CRLF .
     "Content-Type: application/octet-stream" . CRLF .
     CRLF .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
