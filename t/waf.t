@@ -88,8 +88,12 @@ http {
         listen       127.0.0.1:8080;
         server_name  localhost;
 
+        large_client_header_buffers 4 1k;
+
         location / {
             security_waf on;
+
+            client_body_buffer_size 4k;
 
             security_loc_rule "wl:4000" "z:@ARGS";
             security_loc_rule "wl:4002" "z:V_ARGS:bar";
@@ -127,7 +131,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(74);
+$t->try_run('no waf')->plan(75);
 
 ###############################################################################
 
@@ -431,4 +435,47 @@ like(http(
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
 ), qr/200 OK/, 'waf_8001: test body multipart ok');
 
+like(http(
+    "POST / HTTP/1.1" . CRLF .
+    "Host: localhost" . CRLF .
+    "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Length: 2086" . CRLF .
+    "Connection: close" . CRLF .
+    CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    CRLF .
+    "100000" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"empty\"" . CRLF .
+    "Content-Type: application/octet-stream" . CRLF .
+    CRLF .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
+    "eval" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    CRLF .
+    "Upload" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
+), qr/403 Forbidden/, 'waf_8001: test body multipart block');
 ###############################################################################
