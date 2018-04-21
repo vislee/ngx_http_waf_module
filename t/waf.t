@@ -82,6 +82,8 @@ http {
     security_rule id:7001 "str:ct@testbody" "z:#RAW_BODY";
     security_rule id:7002 "str:eq@testurlencodebody" "z:V_BODY:foo";
 
+    security_rule id:8001 "str:ct@eval" "z:#FILE";
+
     server {
         listen       127.0.0.1:8080;
         server_name  localhost;
@@ -125,7 +127,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(70);
+$t->try_run('no waf')->plan(74);
 
 ###############################################################################
 
@@ -137,6 +139,8 @@ like(http_get('/hello/hellowaf'), qr/403 Forbidden/, 'waf_1002: test url ok');
 
 like(http_get("/?teststr=hello testct world"),
     qr/403 Forbidden/, 'waf_1010: test contain block');
+like(http_get("/?TESTstr=hello TESTct world"),
+    qr/403 Forbidden/, 'waf_1010: test case contain block');
 like(http_get("/?teststr=hello world"),
     qr/200 OK/, 'waf_1010: test contain ok');
 like(http_get("/?teststr=testeq"),
@@ -170,6 +174,8 @@ like(http_get("/?aaaaaa=hello world"),
 
 like(http_get("/?foo=argskv"),
     qr/403 Forbidden/, 'waf_2001: test args block');
+like(http_get("/?foo=argsKV"),
+    qr/403 Forbidden/, 'waf_2001: test caseargs block');
 like(http_get("/?argskv=bar"),
     qr/403 Forbidden/, 'waf_2001: test args block');
 like(http_get("/?foo=test"), qr/200 OK/, 'waf_2001: test args block');
@@ -378,5 +384,51 @@ like(http(
     "fcc=testurlencodebody&bar=test"
 ), qr/200 OK/, 'waf_7002: test body urlencode ok');
 
+
+like(http(
+    "POST / HTTP/1.1" . CRLF .
+    "Host: localhost" . CRLF .
+    "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Length: 430" . CRLF .
+    "Connection: close" . CRLF .
+    CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    CRLF .
+    "100000" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"ttt\"" . CRLF .
+    "Content-Type: application/octet-stream" . CRLF .
+    CRLF .
+    "<?php \@eval(\$_POST['pass']);?>" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    CRLF .
+    "Upload" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
+), qr/403 Forbidden/, 'waf_8001: test body multipart block');
+
+like(http(
+    "POST / HTTP/1.1" . CRLF .
+    "Host: localhost" . CRLF .
+    "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Length: 430" . CRLF .
+    "Connection: close" . CRLF .
+    CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    CRLF .
+    "100000" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"ttt\"" . CRLF .
+    "Content-Type: application/octet-stream" . CRLF .
+    CRLF .
+    "<?php \@test(\$_POST['pass']);?>" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    CRLF .
+    "Upload" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
+), qr/200 OK/, 'waf_8001: test body multipart ok');
 
 ###############################################################################

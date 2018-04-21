@@ -127,7 +127,7 @@
 #define NGX_HTTP_WAF_MZ_G_BODY           0x00008
 #define NGX_HTTP_WAF_MZ_G_RAW_BODY       0x01000
 // multipart/form-data
-#define NGX_HTTP_WAF_MZ_G_FILE_NAME      0x02000
+#define NGX_HTTP_WAF_MZ_G_FILE_BODY      0x02000
 
 // specify variable
 #define NGX_HTTP_WAF_MZ_VAR              0x000F0
@@ -149,7 +149,7 @@
 #define NGX_HTTP_WAF_MZ_ARGS             0x00222
 #define NGX_HTTP_WAF_MZ_HEADERS          0x00444
 #define NGX_HTTP_WAF_MZ_BODY             0x01888
-#define NGX_HTTP_WAF_MZ_G_FILE_NAME      0x02000
+#define NGX_HTTP_WAF_MZ_G_FILE_BODY      0x02000
 
 
 #define ngx_http_waf_mz_gt(one, two)                            \
@@ -244,7 +244,7 @@ typedef struct ngx_http_waf_whitelist_s {
     ngx_array_t  *args_zones; /* opt->m_zones */
     ngx_array_t  *headers_zones;
     ngx_array_t  *body_zones;
-    ngx_array_t  *body_file_name_zones;
+    ngx_array_t  *body_file_zones;
     // not specify the match zone.
     unsigned      all_zones:1;
 } ngx_http_waf_whitelist_t;
@@ -258,7 +258,7 @@ typedef struct {
     ngx_array_t     *headers;
     ngx_array_t     *body;
     ngx_array_t     *raw_body;
-    ngx_array_t     *body_file_name;
+    ngx_array_t     *body_file;
 
     // ngx_http_waf_rule_t
     // specify variable
@@ -283,7 +283,7 @@ typedef struct {
     ngx_array_t        *args;
     ngx_array_t        *headers;
     ngx_array_t        *body;
-    ngx_array_t        *body_file_name;
+    ngx_array_t        *body_file;
     ngx_array_t        *raw_body;
 
     // ngx_http_waf_rule_t
@@ -419,15 +419,6 @@ static ngx_int_t ngx_http_waf_rule_str_xss_handler(
 static ngx_int_t ngx_http_waf_check_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
-static ngx_str_t    sql = ngx_string("sql");
-static ngx_str_t    xss = ngx_string("xss");
-
-static ngx_str_t    ngx_http_ct_urlencode =
-    ngx_string("application/x-www-form-urlencoded");
-static ngx_str_t    ngx_http_ct_multipart =
-    ngx_string("multipart/form-data;");
-static ngx_str_t    ngx_http_multi_content_disposition = 
-    ngx_string("Content-Disposition: form-data;");
 
 static ngx_conf_bitmask_t  ngx_http_waf_rule_actions[] = {
     {ngx_string("LOG"),    NGX_HTTP_WAF_STS_RULE_LOG},
@@ -496,8 +487,8 @@ static ngx_conf_bitmask_t  ngx_http_waf_rule_zone_item[] = {
       NGX_HTTP_WAF_MZ_G_RAW_BODY|NGX_HTTP_WAF_STS_MZ_VAL },
 
     // TODO: file
-    // { ngx_string("#FILE_NAME"),
-    //   NGX_HTTP_WAF_MZ_G_FILE_NAME|NGX_HTTP_WAF_STS_MZ_VAL },
+    { ngx_string("#FILE"),
+      NGX_HTTP_WAF_MZ_G_FILE_BODY|NGX_HTTP_WAF_STS_MZ_VAL },
 
     { ngx_string("V_BODY:"),
       NGX_HTTP_WAF_MZ_VAR_BODY|NGX_HTTP_WAF_STS_MZ_VAL },
@@ -537,9 +528,9 @@ static ngx_http_waf_add_rule_t  ngx_http_waf_conf_add_rules[] = {
       offsetof(ngx_http_waf_loc_conf_t, raw_body),
       ngx_http_waf_add_rule_handler },
 
-    { NGX_HTTP_WAF_MZ_G_FILE_NAME,
-      offsetof(ngx_http_waf_main_conf_t, body_file_name),
-      offsetof(ngx_http_waf_loc_conf_t, body_file_name),
+    { NGX_HTTP_WAF_MZ_G_FILE_BODY,
+      offsetof(ngx_http_waf_main_conf_t, body_file),
+      offsetof(ngx_http_waf_loc_conf_t, body_file),
       ngx_http_waf_add_rule_handler },
 
     { NGX_HTTP_WAF_MZ_VAR_URL,
@@ -586,8 +577,8 @@ static ngx_http_waf_add_wl_part_t  ngx_http_waf_conf_add_wl[] = {
       offsetof(ngx_http_waf_whitelist_t, body_zones),
       ngx_http_waf_add_wl_part_handler},
 
-      { NGX_HTTP_WAF_MZ_G_FILE_NAME,
-      offsetof(ngx_http_waf_whitelist_t, body_file_name_zones),
+      { NGX_HTTP_WAF_MZ_G_FILE_BODY,
+      offsetof(ngx_http_waf_whitelist_t, body_file_zones),
       ngx_http_waf_add_wl_part_handler},
 
     {0, 0, NULL}
@@ -711,6 +702,20 @@ ngx_http_waf_create_loc_conf(ngx_conf_t *cf)
 }
 
 // -- public ---------------
+static u_char *ngx_strpbrk(u_char *b, u_char *e, char *s) {
+    u_char *p = b;
+
+    while (p < e) {
+        if (ngx_strchr(s, *p) != NULL) {
+            return p;
+        }
+
+        p++;
+    }
+
+    return NULL;
+}
+
 
 static u_char*
 ngx_http_waf_score_tag(u_char *b, u_char *e, char *s) {
@@ -1389,20 +1394,20 @@ ngx_http_waf_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 #if (NGX_DEBUG)
     ngx_http_waf_print_rule_array(conf->body_var, "conf->body_var");
 
-    ngx_http_waf_print_rule_array(conf->body_file_name, "@conf->body_file_name");
+    ngx_http_waf_print_rule_array(conf->body_file, "@conf->body_file");
 #endif
-    pr_array = wmcf->body_file_name;
-    if (prev->body_file_name != NULL) {
-        pr_array = prev->body_file_name;
+    pr_array = wmcf->body_file;
+    if (prev->body_file != NULL) {
+        pr_array = prev->body_file;
     }
 
     if (ngx_http_waf_merge_rule_array(cf, conf->whitelists, conf->check_rules,
-        pr_array, &conf->body_file_name) != NGX_OK)
+        pr_array, &conf->body_file) != NGX_OK)
     {
         return NGX_CONF_ERROR;
     }
 #if (NGX_DEBUG)
-    ngx_http_waf_print_rule_array(conf->body_file_name, "conf->body_file_name");
+    ngx_http_waf_print_rule_array(conf->body_file, "conf->body_file");
 #endif
 
 
@@ -2189,7 +2194,10 @@ static ngx_int_t
 ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
     ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
 {
-    u_char     *p;
+    u_char             *p;
+
+    static ngx_str_t    sql = ngx_string("sql");
+    static ngx_str_t    xss = ngx_string("xss");
 
     if (str->len - parser->prefix.len != 3) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
@@ -2538,7 +2546,7 @@ ngx_http_waf_hash_find(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
         }
 
         for (i = 0; i < key->len; i++) {
-            if (key->data[i] != elt->name[i]) {
+            if (ngx_tolower(key->data[i]) != elt->name[i]) {
                 goto next;
             }
         }
@@ -2828,10 +2836,14 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 {
     u_char                       *p, *q, *e, *t;
     ngx_str_t                     body, *type, key, val, content, boundary;
-    ngx_str_t                     boundary_head = ngx_string("boundary=");
-    ngx_int_t                     is_file;
+    ngx_int_t                     is_file, tmp_buf, over;
     ngx_chain_t                  *cl;
     ngx_http_waf_ctx_t           *ctx;
+
+    ngx_str_t    ct_urlencode = ngx_string("application/x-www-form-urlencoded");
+    ngx_str_t    ct_multipart = ngx_string("multipart/form-data");
+    ngx_str_t    boundary_prefix = ngx_string("boundary");
+    ngx_str_t    ct_disposition = ngx_string("Content-Disposition");
 
     enum {
         sw_key = 0,
@@ -2860,25 +2872,47 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                     "ngx http waf module socore body content type:%V", type);
 
     cl = r->request_body->bufs;
-    body.data = cl->buf->pos;
-    body.len  = cl->buf->last - cl->buf->pos;
+    if (cl->next == NULL) {
+        tmp_buf = 0;
+        body.data = cl->buf->pos;
+        body.len  = cl->buf->last - cl->buf->pos;
+
+    } else {
+        tmp_buf = 0;
+        body.len = 0;
+
+        for (; cl; cl = cl->next) {
+            body.len += cl->buf->last - cl->buf->pos;
+        }
+
+        if (body.len > 0) {
+            body.data = ngx_pcalloc(r->pool, body.len + 1);
+            if (body.data != NULL) {
+                tmp_buf = 1;
+                p = body.data;
+                for (cl = r->request_body->bufs; cl; cl = cl->next) {
+                    p = ngx_copy(p, cl->buf->pos, cl->buf->last - cl->buf->pos);
+                }
+            }
+        }
+    }
 
 #if (NGX_DEBUG)
-    if (body.len > 512) {
-        body.len = 512;
-    }
-    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                    "ngx http waf module socre body content:%V ...", &body);
-    body.len  = cl->buf->last - cl->buf->pos;
+    ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "ngx http waf module socre body file length: %d content:\n"
+                    "%V", body.len, &body);
 #endif
 
     // raw_body
     ngx_http_waf_rule_filter(r, ctx, NULL, wlcf->raw_body, NULL, &body, 0);
 
+
+    // TODO: return
+
     // parse body
-    if (ngx_http_ct_urlencode.len <= type->len
-        && ngx_strncasecmp(type->data, ngx_http_ct_urlencode.data,
-          ngx_http_ct_urlencode.len) == 0)
+    if (ct_urlencode.len <= type->len
+        && ngx_strncasecmp(type->data, ct_urlencode.data,
+          ct_urlencode.len) == 0)
     {
         p = body.data;
         e = body.data + body.len;
@@ -2924,118 +2958,178 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
             }
         }
 
-    } else if (ngx_http_ct_multipart.len <= type->len && ngx_strncasecmp(
-          type->data, ngx_http_ct_multipart.data,
-          ngx_http_ct_multipart.len) == 0)
+    } else if (ct_multipart.len <= type->len && ngx_strncasecmp(
+          type->data, ct_multipart.data,
+          ct_multipart.len) == 0)
     {
         // https://www.ietf.org/rfc/rfc1867.txt
-        t = ngx_strnstr(type->data + ngx_http_ct_multipart.len,
-              (char *)boundary_head.data,
-              type->len - ngx_http_ct_multipart.len);
+        ngx_str_null(&boundary);
+
+        t = ngx_strnstr(type->data + ct_multipart.len,
+              (char *)boundary_prefix.data,
+              type->len - ct_multipart.len);
         if (t == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "http waf module multipart content type error, type:%V", type);
             goto done;
         }
 
-        boundary.data = t + boundary_head.len;
-        boundary.len  = type->data + type->len - boundary.data;
+        p = t + boundary_prefix.len;
+        e  = type->data + type->len;
+        while (*p == ' ' || *p == '=' || *p == '\'' || *p == '"') {
+            p++;
+        }
+
+        while (*e == ' ' || *e == '\'' || *e == '"') {
+            e--;
+        }
+
+        boundary.data = ngx_pcalloc(r->pool, 2 + e - p + 1);
+        if (boundary.data == NULL) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "http waf module parse multipart boundary error");
+            goto done;
+        }
+
+        boundary.data[0] = '-';
+        boundary.data[1] = '-';
+        ngx_memcpy(boundary.data + 2, p, e - p);
+        boundary.len = 2 + e - p;
+
         ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                       "http waf module score body boundary:%V", &boundary);
 
         p = body.data;
+        q = p;
         e = body.data + body.len;
 
-        // boundary\r\nContent-Disposition: form-data; name="xxx"
-        if (p[0] != '-' || p[1] != '-' || p[2 + boundary.len] != CR) {
+        p = ngx_strnstr(p, (char *)boundary.data, e - p);
+        if (p == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                "http waf multipart body start boundary error");
-            goto done;
-        }
-        p += 2;
-
-        if (ngx_strncmp(p, boundary.data, boundary.len) != 0) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                "http waf multipart body boundary error");
+                "http waf module parse multipart body boundary start error");
             goto done;
         }
         p += boundary.len;
 
-        while(p < e) {
+        while (p < e) {
+            over = 1;
             is_file = 0;
+            ngx_str_null(&key);
+            ngx_str_null(&val);
+            ngx_str_null(&content);
+
+            // maybe
+            while (*p != CR && *p != LF && p < e) p++;
+
             if (p[0] != CR || p[1] != LF) {
                 ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                     "http waf multipart body boundary crlf error");
                 goto done;
             }
             p += 2;
+
+            // maybe
             while(*p == ' ' && p < e) p++;
 
-            if (ngx_strncasecmp(p, ngx_http_multi_content_disposition.data,
-              ngx_http_multi_content_disposition.len) != 0)
+            if (ngx_strncasecmp(p, ct_disposition.data,
+                ct_disposition.len) == 0)
             {
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                    "http waf multipart body disposition error");
-                goto done;
+                p += ct_disposition.len;
+                // maybe
+                while((*p == ':' || *p == ' ') && p < e) p++;
+
+                if (e - p > 9 && 0 ==
+                    ngx_strncasecmp(p, (u_char *)"form-data", 9))
+                {
+                    p += 9;
+                }
             }
-            p += ngx_http_multi_content_disposition.len;
-            while(*p == ' ' && p < e-6) p++;
 
-            if (ngx_strncasecmp(p, (u_char *)"name=\"", 6) != 0) {
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                    "http waf multipart body name start error");
-                goto done;
-            }
-            p += 6;  // sizeof(name=")-1
-            q = p;
+            while (p < e) {
+                // is not filename=
+                if (*(p-1) != 'e' && *(p-1) != 'E'
+                    && ngx_strncasecmp(p, (u_char *)"name=", 5) == 0)
+                {
+                    p += 5;  // sizeof(name=)-1
 
-            p = ngx_strlchr(p, e, '"');
-            if (p == NULL) {
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                    "http waf multipart body name end error");
-                goto done;
-            }
-            key.data = q;
-            key.len = p - q;
-            p++;    // "
+                    // maybe
+                    while(*p == ' ' || *p == '"' || *p == '\'') p++;
+                    q = p;
 
-            while((*p == ' ' || *p == ';') && p < e-10) p++;
+                    p = ngx_strpbrk(p, e, "\"'; \r");
+                    if (p == NULL) {
+                        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                            "http waf multipart body name end error");
+                        goto done;
+                    }
 
-            if (ngx_strncasecmp(p, (u_char *)"filename=\"", 10) == 0) {
-                p += 10;    // sizeof("filename=\"")-1
-                q = p;
-                p = ngx_strlchr(p, e, '"');
-                if (p == NULL) {
-                    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                        "http waf multipart body filename error");
-                    goto done;
+                    key.data = q;
+                    key.len = p - q;
+
+                    // maybe
+                    while (p < e && (*p == ' ' || *p == '"'
+                            || *p == '\'' || *p == ';'))
+                    {
+                        p++;
+                    }
                 }
 
-                val.data = q;
-                val.len  = p - q;
-                p++;    // "
-                q = p;
+                if (over && ngx_strncasecmp(p, (u_char *)"filename=", 9) == 0) {
+                    p += 9;    // sizeof("filename=")-1
+                    // maybe
+                    while (*p == '"' || *p == '\'' || *p == ' ') p++;
+                    q = p;
+                    p = ngx_strpbrk(p, e, "\"'; \r");
+                    if (p == NULL) {
+                        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                            "http waf multipart body filename error");
+                        goto done;
+                    }
 
-                is_file = 1;
+                    val.data = q;
+                    val.len  = p - q;
+                    while (*p == '"' || *p == '\'' || *p == ' ') p++;
+                    q = p;
 
-                p = ngx_strnstr(p, CRLF CRLF, e - p);
-                if (p == NULL) {
-                    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                        "http waf multipart body content error");
-                    goto done;
+                    over = 0;
+                    is_file = 1;
+
+                    if (*p == ';') {
+                        over = 1;
+                        p++;
+                    }
+
+                    if (e - p > 15 && ngx_strncasecmp(p,
+                            (u_char *) CRLF "Content-Type:", 15) == 0)
+                    {
+                        p += 15;
+                        while (*p == ' ' && p < e) p++;
+                        // application/octet-stream
+                    }
                 }
-                p += 4;
-                q = p;
 
-                goto boundary;
+                if (key.len > 0 && val.len > 0) {
+                    // check
+                    ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                        "http waf module score body multipart "
+                        "name:[%V] filename:[%V]",
+                        &key, &val);
+
+                    ngx_http_waf_rule_filter(r, ctx, &wlcf->body_var_hash,
+                        wlcf->body, &key, &val, 0);
+
+                    val.len = 0;
+                    over = 1;
+                }
+
+                if (p[0] == CR && p[1] == LF && p[2] == CR && p[3] == LF) {
+                    p += 4;
+                    q = p;
+                    break;
+                }
+
+                p++;
             }
-
-            if (p[0] == CR && p[1] == LF && p[2] == CR && p[3] == LF) {
-                p += 4;
-                q = p;
-            }
-
-        boundary:
 
             p = ngx_strnstr(p, CRLF "--", e - p);
             if (p == NULL) {
@@ -3043,50 +3137,57 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                         "http waf multipart body name's value error");
                 goto done;
             }
+
             if (is_file == 1) {
                 content.data = q;
                 content.len  = p - q;
+
+                ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                  "http waf module score body multipart file: [%V]", &content);
+
+                ngx_http_waf_rule_filter(r, ctx, NULL, wlcf->body_file,
+                    NULL, &content, 0);
+
+                is_file = 0;
+
             } else {
+
                 val.data = q;
                 val.len  = p - q;
-            }
-            p += 4;  // sizeof(CRLF "--") - 1
 
-            if (ngx_strncmp(p, boundary.data, boundary.len) != 0) {
+                ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "http waf module score body multipart "
+                    "name:[%V] val:[%V]",
+                    &key, &val);
+
+                ngx_http_waf_rule_filter(r, ctx, &wlcf->body_var_hash,
+                    wlcf->body, &key, &val, 0);
+            }
+            p += 2;  // sizeof(CRLF) - 1
+
+            key.len     = 0;
+            val.len     = 0;
+            content.len = 0;
+
+            if (ngx_strnstr(p, (char *)boundary.data, e - p) == NULL) {
                 ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                         "http waf multipart body boundary end error");
                 goto done;
             }
             p += boundary.len;
 
-            // check
-            ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                    "http waf module score body multipart key:[%V] val:[%V]",
-                    &key, &val);
-
-            ngx_http_waf_rule_filter(r, ctx, &wlcf->body_var_hash, wlcf->body,
-                    &key, &val, 0);
-
-            if (is_file) {
-                ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                  "http waf module score body multipart file: [%V]", &content);
-                // TODO: filter file content
-                ngx_http_waf_rule_filter(r, ctx, NULL, NULL,
-                    NULL, &content, 0);
-            }
-
-            key.len     = 0;
-            val.len     = 0;
-            content.len = 0;
-
-            if (p[0] == '-' && p[1] == '-') {
+            if (p + 2 == e && p[0] == '-' && p[1] == '-') {
                 goto done;
             }
         }
-
     }
 
 done:
+    if (boundary.data != NULL) {
+        ngx_pfree(r->pool, boundary.data);
+        boundary.data = NULL;
+    }
+
     return;
 }
 
@@ -3260,7 +3361,7 @@ ngx_http_waf_handler(ngx_http_request_t *r)
 static ngx_int_t
 ngx_http_waf_log_handler(ngx_http_request_t *r)
 {
-    u_char                      line[2048], *p, *buf;
+    u_char                      line[4096], *p, *buf;
     size_t                      len;
     ngx_uint_t                  i, j;
     ngx_http_waf_ctx_t         *ctx;
@@ -3281,8 +3382,8 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
         "ngx waf log handler");
 
-    len = 2048;
-    ngx_memzero(line, 2048);
+    len = 4096;
+    ngx_memzero(line, 4096);
     buf = line;
 
     p = ngx_snprintf(buf, len, "{\"timestamp\": \"%T\", \"remote_ip\": \"%V\", "
@@ -3297,7 +3398,7 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
 
     if (ctx->scores != NULL) {
         scs = ctx->scores->elts;
-        for (i = 0; i < ctx->scores->nelts; i++) {
+        for (i = 0; i < ctx->scores->nelts && len > 0; i++) {
             p = ngx_snprintf(buf, len, "\"%V_total\": \"%ui\", ",
                 &scs[i].tag, scs[i].score);
 
@@ -3309,7 +3410,7 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
             }
 
             logc = scs[i].log_ctx->elts;
-            for (j = 0; j < scs[i].log_ctx->nelts; j++) {
+            for (j = 0; j < scs[i].log_ctx->nelts && len > 0; j++) {
                 lc = &logc[j];
 
                 p = ngx_snprintf(buf, len, "\"rule_%V_%d_score\": \"%ui\", "
@@ -3347,7 +3448,7 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
     }
 
     // buf - 2 for cover ", "
-    p = ngx_snprintf(buf - 2, len, "}\n");
+    p = ngx_snprintf(buf - 2, len + 2, "}\n");
 
     ngx_write_fd(wlcf->log_file->fd, line, p-line);
 
