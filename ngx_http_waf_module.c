@@ -2328,7 +2328,6 @@ ngx_http_waf_rule_str_ge_handler(ngx_http_waf_public_rule_t *pr,
     p = s->data;
     q = pr->str.data;
 
-    fprintf(stderr, "%d:%.*s  %d:%s\n", (int)s->len, (int)s->len, s->data, (int)pr->str.len, pr->str.data);
     while (i < s->len && i < pr->str.len) {
 
         if (*p < *q) {
@@ -3037,7 +3036,7 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
             p++;
         }
 
-        while (*e == ' ' || *e == '\'' || *e == '"') {
+        while (*(e-1) == ' ' || *(e-1) == '\'' || *(e-1) == '"') {
             e--;
         }
 
