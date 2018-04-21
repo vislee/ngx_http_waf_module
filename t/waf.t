@@ -442,7 +442,7 @@ like(http(
     "POST / HTTP/1.1" . CRLF .
     "Host: localhost" . CRLF .
     "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Length: 2086" . CRLF .
+    "Content-Length: 2100" . CRLF .
     "Connection: close" . CRLF .
     CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
@@ -450,7 +450,7 @@ like(http(
     CRLF .
     "100000" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"empty\"" . CRLF .
+    "Content-Disposition: form-data; name=\"uploaded\"; filename=aaa; filename=\"empty\"" . CRLF .
     "Content-Type: application/octet-stream" . CRLF .
     CRLF .
     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
