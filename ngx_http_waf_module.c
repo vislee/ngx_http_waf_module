@@ -2845,6 +2845,11 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
     ngx_str_t    boundary_prefix = ngx_string("boundary");
     ngx_str_t    ct_disposition = ngx_string("Content-Disposition");
 
+    ngx_str_null(&key);
+    ngx_str_null(&val);
+    ngx_str_null(&content);
+    ngx_str_null(&boundary);
+
     enum {
         sw_key = 0,
         sw_val
