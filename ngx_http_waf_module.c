@@ -2278,9 +2278,9 @@ ngx_http_waf_score_calc(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
             ctx->status |= cs[k].action_flag;
         }
 
-        if (str.len > 128) {
-            str.len = 128;
-        }
+        // if (str.len > 128) {
+        //     str.len = 128;
+        // }
         ngx_log_debug5(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
             "http waf module score calc. id:%i tag:$%V score:%i total_score:%i"
             " str:%V",
