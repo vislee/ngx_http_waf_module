@@ -2318,6 +2318,34 @@ static ngx_int_t
 ngx_http_waf_rule_str_ge_handler(ngx_http_waf_public_rule_t *pr,
     ngx_str_t *s)
 {
+    ngx_uint_t        i = 0;
+    u_char           *p, *q;
+
+    if (s == NULL || s->data == NULL || s->len == 0) {
+        return NGX_ERROR;
+    }
+
+    p = s->data;
+    q = pr->str.data;
+
+    fprintf(stderr, "%d:%.*s  %d:%s\n", (int)s->len, (int)s->len, s->data, (int)pr->str.len, pr->str.data);
+    while (i < s->len && i < pr->str.len) {
+
+        if (*p < *q) {
+            return NGX_ERROR;
+        } else if (*p > *q) {
+            return NGX_OK;
+        }
+
+        i++;
+        p++;
+        q++;
+    }
+
+    if (s->len >= pr->str.len) {
+        return NGX_OK;
+    }
+
     return NGX_ERROR;
 }
 
@@ -2326,6 +2354,33 @@ static ngx_int_t
 ngx_http_waf_rule_str_le_handler(ngx_http_waf_public_rule_t *pr,
     ngx_str_t *s)
 {
+    ngx_uint_t      i = 0;
+    u_char         *p, *q;
+
+    if (s == NULL || s->data == NULL || s->len == 0) {
+        return NGX_ERROR;
+    }
+
+    p = s->data;
+    q = pr->str.data;
+
+    while (i < s->len && i < pr->str.len) {
+
+        if (*p > *q) {
+            return NGX_ERROR;
+        } else if (*p < *q) {
+            return NGX_OK;
+        }
+
+        i++;
+        p++;
+        q++;
+    }
+
+    if (s->len <= pr->str.len) {
+        return NGX_OK;
+    }
+
     return NGX_ERROR;
 }
 
