@@ -84,6 +84,9 @@ http {
 
     security_rule id:8001 "str:ct@eval" "z:#FILE";
 
+    security_rule id:9001 "str:eq@testscorecheck" "s:$TESTCHK:10" "z:V_ARGS:foo";
+
+
     server {
         listen       127.0.0.1:8080;
         server_name  localhost;
@@ -108,7 +111,7 @@ http {
             security_check $CALC1>3 BLOCK;
             security_check $VAR>3 $var_res;
 
-            security_log %%TESTDIR%%/logs/waf.log;
+            security_log off;
 
             proxy_pass http://127.0.0.1:8081/$var_res;
         }
@@ -131,7 +134,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(75);
+$t->try_run('no waf')->plan(76);
 
 ###############################################################################
 
@@ -478,4 +481,7 @@ like(http(
     "Upload" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
 ), qr/403 Forbidden/, 'waf_8001: test body multipart block');
+
+like(http_get("/?foo=testscorecheck"),
+    qr/200 OK/, 'waf_9001: test empty score check ok');
 ###############################################################################
