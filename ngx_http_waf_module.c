@@ -105,13 +105,12 @@
     ((flag) & NGX_HTTP_WAF_STS_RULE_BLOCK)
 #define ngx_http_waf_sts_act_set_block(flag)        \
     ((flag) |= NGX_HTTP_WAF_STS_RULE_BLOCK)
-
 #define ngx_http_waf_sts_has_drop(flag)             \
     ((flag) & NGX_HTTP_WAF_STS_RULE_DROP)
-
 #define ngx_http_waf_sts_has_var(flag)              \
     ((flag) & NGX_HTTP_WAF_STS_RULE_VAR)
-
+#define ngx_http_waf_sts_has_allow(flag)            \
+    ((flag) & NGX_HTTP_WAF_STS_RULE_ALLOW)
 #define ngx_http_waf_act_set_var_block(flag)        \
     ((flag) |= (NGX_HTTP_WAF_STS_RULE_BLOCK | NGX_HTTP_WAF_STS_RULE_VAR))
 
@@ -123,8 +122,10 @@ ngx_http_waf_get_act(ngx_uint_t flag) {
         case NGX_HTTP_WAF_STS_RULE_DROP:   return "DROP";
         case NGX_HTTP_WAF_STS_RULE_ALLOW:  return "ALLOW";
         default:
-        return "LOG";
+            return "LOG";
     }
+
+    return "LOG";
 }
 
 // 0xFFFFF
@@ -3317,6 +3318,10 @@ ngx_http_waf_check_variable(ngx_http_request_t *r,
 static ngx_int_t
 ngx_http_waf_check(ngx_http_waf_ctx_t *ctx)
 {
+    if (ngx_http_waf_sts_has_allow(ctx->status)) {
+        return NGX_DECLINED;
+    }
+
     if (ngx_http_waf_sts_has_block(ctx->status) 
       && !ngx_http_waf_sts_has_var(ctx->status)) {
         return NGX_HTTP_FORBIDDEN;
