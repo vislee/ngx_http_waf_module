@@ -21,7 +21,7 @@ use Test::Nginx;
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
-my $t = Test::Nginx->new()->plan(2)
+my $t = Test::Nginx->new()->plan(3)
     ->write_file_expand('nginx.conf', <<'EOF');
 
 %%TEST_GLOBALS%%
@@ -44,10 +44,12 @@ http {
         location /sec/log {
             security_loc_rule id:1001 "str:eq@test" "z:ARGS";
             security_loc_rule id:1002 "str:eq@waflog" "s:$TLOG:2" "z:ARGS";
+            security_loc_rule id:1003 "str:ct@/allow/url" "s:$ALLOW:2" "z:#URL";
 
             security_waf on;
 
             security_check $TLOG>3 LOG;
+            security_check $ALLOW>1 ALLOW;
 
             security_log %%TESTDIR%%/waf.log;
 
@@ -73,8 +75,10 @@ $t->run();
 
 http_get('/sec/log?foo=test');
 http_get('/sec/log?waflog=hello&hello=waflog');
+http_get('/sec/log/allow/url?waflog=hello&hello=waflog');
 
 $t->stop();
 
 like($t->read_file('waf.log'), qr/"rule_BLOCK_1001_score": "0"/, 'waf log');
 like($t->read_file('waf.log'), qr/"TLOG_total": "4"/, 'waf log');
+like($t->read_file('waf.log'), qr/"ALLOW_total": "2"/, 'waf log');
