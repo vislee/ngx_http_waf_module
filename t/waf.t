@@ -127,8 +127,6 @@ http {
 
                 security_check $WL0>4 BLOCK;
 
-                security_log %%TESTDIR%%/waf_location.log;
-
                 proxy_pass http://127.0.0.1:8081/;
             }
         }
@@ -319,7 +317,16 @@ like(http(
     "defg: bb" . CRLF .
     "hijk: cc" . CRLF .
     "xyz: xxx" . CRLF .
+    "a_b_c_d: bbb" . CRLF .
+    "de_fg: cc" . CRLF .
+    "hi_j_k: 1234567890abcdefghijkmlnopqrstuvwxyz" . CRLF .
     "x_y_z: yyy" . CRLF .
+    "x_y_z: xxx" . CRLF .
+    "x_y_z: zzz" . CRLF .
+    "x_y_z: ooo" . CRLF .
+    "x_y_z: ppp" . CRLF .
+    "x_y_z: qqq" . CRLF .
+    "x_y_z: rrr" . CRLF .
     "foo: headervbar" . CRLF .
     CRLF
 ), qr/403 Forbidden/, 'waf_3004: test multi headers sepckey block');
