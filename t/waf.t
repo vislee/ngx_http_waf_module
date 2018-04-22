@@ -60,6 +60,7 @@ http {
 
     security_rule id:2004 "str:eq@argsvbar" "z:V_ARGS:foo";
     security_rule id:2005 "str:eq@argsxbar" "z:X_ARGS:^x-[a-z]{2,3}-regex$";
+    security_rule id:2006 "str:eq@/allowurl" "s:$ALLOW:5" "z:#URL";
 
     security_rule id:3001 "str:eq@headerkeyval"  "z:HEADERS";
     security_rule id:3002 "str:eq@headeronlykey" "z:@HEADERS";
@@ -113,6 +114,7 @@ http {
             security_check $WL1>3 BLOCK;
             security_check $CALC1>3 BLOCK;
             security_check $VAR>3 $var_res;
+            security_check $ALLOW>1 ALLOW;
 
             security_log off;
 
@@ -149,7 +151,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(89);
+$t->try_run('no waf')->plan(90);
 
 ###############################################################################
 
@@ -245,6 +247,8 @@ like(http_get("/?x-abc-regex=argsxtval"),
 like(http_get("/?test=argsxbar"),
     qr/200 OK/, 'waf_2005: test args regexkey ok');
 
+like(http_get("/allowurl?foo=argsvbar"),
+    qr/200 OK/, 'waf_2006: test allow uri ok');
 
 like(http(
     "GET / HTTP/1.0" . CRLF .
