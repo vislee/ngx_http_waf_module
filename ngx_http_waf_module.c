@@ -59,8 +59,8 @@
 #define NGX_HTTP_WAF_STS_RULE_LOG      0x00100000
 #define NGX_HTTP_WAF_STS_RULE_BLOCK    0x00200000
 #define NGX_HTTP_WAF_STS_RULE_DROP     0x00400000
-#define NGX_HTTP_WAF_STS_RULE_DONE     0x00600000  // (BLOCK|DROP)
-// #define NGX_HTTP_WAF_STS_RULE_NULL  0x00800000
+#define NGX_HTTP_WAF_STS_RULE_ALLOW    0x00800000
+#define NGX_HTTP_WAF_STS_RULE_DONE     0x00E00000  // (BLOCK|DROP|ALLOW)
 // #define NGX_HTTP_WAF_STS_RULE_NULL  0x01800000
 // #define NGX_HTTP_WAF_STS_RULE_NULL  0x02800000
 #define NGX_HTTP_WAF_STS_RULE_MZ_WL    0x04000000
@@ -115,6 +115,17 @@
 #define ngx_http_waf_act_set_var_block(flag)        \
     ((flag) |= (NGX_HTTP_WAF_STS_RULE_BLOCK | NGX_HTTP_WAF_STS_RULE_VAR))
 
+
+static char*
+ngx_http_waf_get_act(ngx_uint_t flag) {
+    switch(flag & NGX_HTTP_WAF_STS_RULE_ACTION) {
+        case NGX_HTTP_WAF_STS_RULE_BLOCK:  return "BLOCK";
+        case NGX_HTTP_WAF_STS_RULE_DROP:   return "DROP";
+        case NGX_HTTP_WAF_STS_RULE_ALLOW:  return "ALLOW";
+        default:
+        return "LOG";
+    }
+}
 
 // 0xFFFFF
 // match zone types
@@ -424,6 +435,7 @@ static ngx_conf_bitmask_t  ngx_http_waf_rule_actions[] = {
     {ngx_string("LOG"),    NGX_HTTP_WAF_STS_RULE_LOG},
     {ngx_string("BLOCK"),  NGX_HTTP_WAF_STS_RULE_BLOCK},
     {ngx_string("DROP"),   NGX_HTTP_WAF_STS_RULE_DROP},
+    {ngx_string("ALLOW"),  NGX_HTTP_WAF_STS_RULE_ALLOW},
 
     {ngx_null_string, 0}
 };
@@ -3447,7 +3459,7 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
         "\"result\": \"%s\", ",
         ngx_time(), &r->connection->addr_text, &r->headers_in.host->value,
         &r->method_name, &r->unparsed_uri,
-        ngx_http_waf_sts_has_block(ctx->status)? "BLOCK": "LOG");
+        ngx_http_waf_get_act(ctx->status));
 
     len -= p - buf;
     buf = p;
