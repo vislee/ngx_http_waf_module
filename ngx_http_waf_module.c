@@ -220,6 +220,7 @@ struct ngx_http_waf_public_rule_s {
 
     // TODO: decode_handler
     ngx_http_waf_rule_match_pt  handler;
+    unsigned                    not:1;
 };
 
 
@@ -603,6 +604,9 @@ static ngx_http_waf_rule_parser_t  ngx_http_waf_rule_parser_item[] = {
     {ngx_string("s:"),      ngx_http_waf_parse_rule_score},
     {ngx_string("str:"),    ngx_http_waf_parse_rule_str},
     {ngx_string("libinj:"), ngx_http_waf_parse_rule_libinj},
+    // TODO:
+    // {ngx_string("hash:"), ngx_http_waf_parse_rule_hash},
+    // {ngx_string("magic:"), ngx_http_waf_parse_rule_magic},
     {ngx_string("z:"),      ngx_http_waf_parse_rule_zone},
     {ngx_string("wl:"),     ngx_http_waf_parse_rule_whitelist},
     {ngx_string("note:"),   ngx_http_waf_parse_rule_note},
@@ -1885,7 +1889,11 @@ ngx_http_waf_parse_rule_str(ngx_conf_t *cf, ngx_str_t *str,
     p = str->data + parser->prefix.len;
     e = str->data + str->len;
 
-    // TODO: lt@ le@ gt@ ge@ 
+    if (*p == '!') {
+        p++;
+        opt->p_rule->not = 1;
+    }
+
     // ct@xyz ne@xyz eq@xyz sw@xyz ew@xyz rx@xyz...
     if (p + 3 >= e || p[2] != '@') {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
@@ -2344,9 +2352,10 @@ ngx_http_waf_rule_str_ge_handler(ngx_http_waf_public_rule_t *pr,
     while (i < s->len && i < pr->str.len) {
 
         if (*p < *q) {
-            return NGX_ERROR;
+            return pr->not? NGX_OK: NGX_ERROR;
+
         } else if (*p > *q) {
-            return NGX_OK;
+            return pr->not? NGX_ERROR: NGX_OK;
         }
 
         i++;
@@ -2355,10 +2364,10 @@ ngx_http_waf_rule_str_ge_handler(ngx_http_waf_public_rule_t *pr,
     }
 
     if (s->len >= pr->str.len) {
-        return NGX_OK;
+        return pr->not? NGX_ERROR: NGX_OK;
     }
 
-    return NGX_ERROR;
+    return pr->not? NGX_OK: NGX_ERROR;
 }
 
 
@@ -2379,9 +2388,11 @@ ngx_http_waf_rule_str_le_handler(ngx_http_waf_public_rule_t *pr,
     while (i < s->len && i < pr->str.len) {
 
         if (*p > *q) {
-            return NGX_ERROR;
+            return pr->not? NGX_OK: NGX_ERROR;
+
         } else if (*p < *q) {
-            return NGX_OK;
+            return pr->not? NGX_ERROR: NGX_OK;
+
         }
 
         i++;
@@ -2390,10 +2401,10 @@ ngx_http_waf_rule_str_le_handler(ngx_http_waf_public_rule_t *pr,
     }
 
     if (s->len <= pr->str.len) {
-        return NGX_OK;
+        return pr->not? NGX_ERROR: NGX_OK;
     }
 
-    return NGX_ERROR;
+    return pr->not? NGX_OK: NGX_ERROR;
 }
 
 
@@ -2414,10 +2425,10 @@ ngx_http_waf_rule_str_ct_handler(ngx_http_waf_public_rule_t *pr,
 
     p = ngx_strlcasestrn(s->data, e, pr->str.data, pr->str.len - 1);
     if (p != NULL) {
-        return NGX_OK;
+        return pr->not? NGX_ERROR: NGX_OK;
     }
 
-    return NGX_ERROR;
+    return pr->not? NGX_OK: NGX_ERROR;
 }
 
 
@@ -2432,10 +2443,10 @@ ngx_http_waf_rule_str_eq_handler(ngx_http_waf_public_rule_t *pr,
     if (s->len == pr->str.len && ngx_strncasecmp(s->data,
         pr->str.data, s->len) == 0)
     {
-        return NGX_OK;
+        return pr->not? NGX_ERROR: NGX_OK;
     }
 
-    return NGX_ERROR;
+    return pr->not? NGX_OK: NGX_ERROR;
 }
 
 

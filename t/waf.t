@@ -43,14 +43,18 @@ http {
     security_rule id:1002 "str:sw@/hello" "z:X_URL:/hello/[a-z]{3,5}";
 
     security_rule id:1010 "str:ct@testct" "z:V_ARGS:teststr";
+    security_rule id:1110 "str:!ct@testct" "z:V_ARGS:teststrnotct";
     security_rule id:1011 "str:eq@testeq" "z:V_ARGS:teststr";
+    security_rule id:1111 "str:!eq@testeq" "z:V_ARGS:teststrnoteq";
     security_rule id:1012 "str:sw@testsw" "z:V_ARGS:teststr";
     security_rule id:1013 "str:ew@testew" "z:V_ARGS:teststr";
     security_rule id:1014 "str:rx@test-[a-z]{3}-done" "z:V_ARGS:teststr";
     security_rule id:1015 "libinj:sql" "z:V_ARGS:teststr";
     security_rule id:1016 "libinj:xss" "z:V_ARGS:teststr";
     security_rule id:1017 "str:ge@def" "z:V_ARGS:testge";
+    security_rule id:1117 "str:!ge@def" "z:V_ARGS:testnotge";
     security_rule id:1018 "str:le@def" "z:V_ARGS:testle";
+    security_rule id:1118 "str:!le@def" "z:V_ARGS:testnotle";
 
 
 
@@ -149,7 +153,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(90);
+$t->try_run('no waf')->plan(98);
 
 ###############################################################################
 
@@ -165,10 +169,20 @@ like(http_get("/?TESTstr=hello TESTct world"),
     qr/403 Forbidden/, 'waf_1010: test case contain block');
 like(http_get("/?teststr=hello world"),
     qr/200 OK/, 'waf_1010: test contain ok');
+like(http_get("/?Teststrnotct=hello world"),
+    qr/403 Forbidden/, 'waf_1110: test not case contain ok');
+like(http_get("/?Teststrnotct=hello TestCT world"),
+    qr/200 OK/, 'waf_1110: test not case contain ok');
+
 like(http_get("/?teststr=testeq"),
     qr/403 Forbidden/, 'waf_1011: test equal block');
 like(http_get("/?teststr=testequal"),
     qr/200 OK/, 'waf_1011: test equal ok');
+like(http_get("/?teststrnoteq=testeq"),
+    qr/200 OK/, 'waf_1111: test notequal ok');
+like(http_get("/?teststrNotEQ=testequal"),
+    qr/403 Forbidden/, 'waf_1111: test notequal block');
+
 like(http_get("/?teststr=testsw world"),
     qr/403 Forbidden/, 'waf_1012: test startwith block');
 like(http_get("/?teststr=hello testsw world"),
@@ -199,6 +213,11 @@ like(http_get("/?testge=e"),
 like(http_get("/?testge=d"),
     qr/200 OK/, 'waf_1017: test ge ok');
 
+like(http_get("/?testnotge=e"),
+    qr/200 OK/, 'waf_1117: test notge ok');
+like(http_get("/?testnotge=d"),
+    qr/403 Forbidden/, 'waf_1117: test notge block');
+
 like(http_get("/?testle=de"),
     qr/403 Forbidden/, 'waf_1018: test lt block');
 like(http_get("/?testle=def"),
@@ -207,6 +226,11 @@ like(http_get("/?testle=d"),
     qr/403 Forbidden/, 'waf_1018: test lt block');
 like(http_get("/?testle=e"),
     qr/200 OK/, 'waf_1018: test le ok');
+
+like(http_get("/?testnotle=d"),
+    qr/200 OK/, 'waf_1118: test notlt ok');
+like(http_get("/?testnotle=e"),
+    qr/403 Forbidden/, 'waf_1118: test notle block');
 
 like(http_get("/?teststr=hello world"),
     qr/200 OK/, 'waf_10xx: test str match ok');
