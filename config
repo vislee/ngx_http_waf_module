@@ -1,3 +1,21 @@
+if [ "$NGX_PLATFORM" != win32 ]; then
+    #echo "libmagic check ..."
+    ngx_feature="libmagic library"
+    ngx_feature_name="NGX_WAF_MAGIC"
+    ngx_feature_run=no
+    ngx_feature_incs="#include <magic.h>"
+    ngx_feature_path=
+    ngx_feature_libs="-lmagic"
+    ngx_feature_test="magic_t cookie = magic_open(MAGIC_MIME_TYPE);"
+    . auto/feature
+
+    if [ $ngx_found = yes ]; then
+        CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
+        ngx_found=no
+    fi
+fi
+
+
 ngx_addon_name=ngx_http_waf_module
 ngx_feature_libs="-lm"
 
