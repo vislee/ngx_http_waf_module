@@ -11,7 +11,10 @@ addons:
     packages:
     - cpanminus
     - lcov
-    - libmagic-dev
+
+
+before_install:
+  - sudo apt-get install -y libmagic-dev
 
 install:
   - gem install coveralls-lcov
