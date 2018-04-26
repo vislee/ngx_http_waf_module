@@ -31,7 +31,6 @@ script:
     --with-cc-opt="-fprofile-arcs -ftest-coverage" --with-ld-opt="-lgcov"
   - make -j
   - make install
-  - ldd /tmp/nginx/modules/ngx_http_waf_module.so;
   - cd ../nginx-tests
   - ls -ltra
   - TEST_NGINX_BINARY=/tmp/nginx/sbin/nginx prove .

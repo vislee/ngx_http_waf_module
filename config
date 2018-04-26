@@ -8,8 +8,8 @@ if [ "$NGX_PLATFORM" != win32 ]; then
     ngx_feature_libs="-lmagic"
     ngx_feature_test="magic_t cookie = magic_open(MAGIC_MIME_TYPE);
                       if (cookie == NULL) return 1;
-                      if (magic_buffer(cookie, "GIF89a", 6) == NULL)
-                            return 1;
+                      char *x = \"GIF89axxxx\";
+                      magic_buffer(cookie, (const void*)x, 10);
                       magic_close(cookie);"
     . auto/feature
 
