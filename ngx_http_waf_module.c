@@ -2660,15 +2660,15 @@ static ngx_int_t
 ngx_http_waf_rule_magic_mimetype_handler(ngx_http_waf_public_rule_t *pr,
     ngx_str_t *s)
 {
-    u_char      *p = NULL;
-    ngx_int_t    res = NGX_ERROR;
-
     if (s == NULL || s->data == NULL || s->len == 0) {
         return NGX_ERROR;
     }
 
 #ifdef NGX_WAF_MAGIC
-    magic_t  cookie;
+    magic_t      cookie;
+
+    u_char      *p = NULL;
+    ngx_int_t    res = NGX_ERROR;
 
     cookie = magic_open(MAGIC_MIME_TYPE);
     if (cookie == NULL) {
