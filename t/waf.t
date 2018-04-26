@@ -47,15 +47,19 @@ http {
     security_rule id:1011 "str:eq@testeq" "z:V_ARGS:teststr";
     security_rule id:1111 "str:!eq@testeq" "z:V_ARGS:teststrnoteq";
     security_rule id:1012 "str:sw@testsw" "z:V_ARGS:teststr";
+    security_rule id:1112 "str:!sw@testsw" "z:V_ARGS:teststrnotsw";
     security_rule id:1013 "str:ew@testew" "z:V_ARGS:teststr";
+    security_rule id:1113 "str:!ew@testew" "z:V_ARGS:teststrnotew";
     security_rule id:1014 "str:rx@test-[a-z]{3}-done" "z:V_ARGS:teststr";
+    security_rule id:1114 "str:!rx@test-[a-z]{3}-done" "z:V_ARGS:teststrnotrx";
     security_rule id:1015 "libinj:sql" "z:V_ARGS:teststr";
     security_rule id:1016 "libinj:xss" "z:V_ARGS:teststr";
     security_rule id:1017 "str:ge@def" "z:V_ARGS:testge";
     security_rule id:1117 "str:!ge@def" "z:V_ARGS:testnotge";
     security_rule id:1018 "str:le@def" "z:V_ARGS:testle";
     security_rule id:1118 "str:!le@def" "z:V_ARGS:testnotle";
-
+    security_rule id:1019 "libmagic:mime_type@text/plain" "z:V_ARGS:testmagic";
+    security_rule id:1119 "libmagic:!mime_type@text/plain" "z:V_ARGS:testmagicnot";
 
 
     security_rule id:2001 "str:eq@argskv" "z:ARGS";
@@ -91,6 +95,7 @@ http {
     security_rule id:7002 "str:eq@testurlencodebody" "z:V_BODY:foo";
 
     security_rule id:8001 "str:ct@eval" "z:#FILE";
+    security_rule id:8002 "str:ct@testphp" "z:X_FILE:^[a-z]{1,5}\.php$";
 
     security_rule id:9001 "str:eq@testscorecheck" "s:$TESTCHK:10" "z:V_ARGS:foo";
 
@@ -153,7 +158,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(98);
+$t->try_run('no waf')->plan(108);
 
 ###############################################################################
 
@@ -187,14 +192,29 @@ like(http_get("/?teststr=testsw world"),
     qr/403 Forbidden/, 'waf_1012: test startwith block');
 like(http_get("/?teststr=hello testsw world"),
     qr/200 OK/, 'waf_1012: test startwith ok');
+like(http_get("/?teststrnotsw=testsw world"),
+    qr/200 OK/, 'waf_1112: test startwith ok');
+like(http_get("/?teststrnotsw=hello testsw world"),
+    qr/403 Forbidden/, 'waf_1112: test startwith block');
+
 like(http_get("/?teststr=hello testew"),
     qr/403 Forbidden/, 'waf_1013: test endwith block');
 like(http_get("/?teststr=hello testew world"),
     qr/200 OK/, 'waf_1013: test endwith ok');
+like(http_get("/?teststrnotew=hello testew"),
+    qr/200 OK/, 'waf_1113: test endwith ok');
+like(http_get("/?teststrnotew=hello testew world"),
+    qr/403 Forbidden/, 'waf_1113: test endwith block');
+
 like(http_get("/?teststr=test-abc-done"),
     qr/403 Forbidden/, 'waf_1014: test regex block');
 like(http_get("/?teststr=test-abcd-done"),
     qr/200 OK/, 'waf_1014: test regex ok');
+like(http_get("/?teststrnotrx=test-abc-done"),
+    qr/200 OK/, 'waf_1114: test regex ok');
+like(http_get("/?teststrnotrx=test-abcd-done"),
+    qr/403 Forbidden/, 'waf_1114: test regex block');
+
 like(http_get("/?teststr=1 or 1=1"),
     qr/403 Forbidden/, 'waf_1015: test sqli block');
 like(http_get("/?teststr=1"),
@@ -227,11 +247,15 @@ like(http_get("/?testle=d"),
 like(http_get("/?testle=e"),
     qr/200 OK/, 'waf_1018: test le ok');
 
+like(http_get("/?testmagic=xxx"),
+    qr/403 Forbidden/, 'waf_1019: test magic block');
+like(http_get("/?testmagicnot=xxx"),
+    qr/200 OK/, 'waf_1019: test magic ok');
+
 like(http_get("/?testnotle=d"),
     qr/200 OK/, 'waf_1118: test notlt ok');
 like(http_get("/?testnotle=e"),
     qr/403 Forbidden/, 'waf_1118: test notle block');
-
 like(http_get("/?teststr=hello world"),
     qr/200 OK/, 'waf_10xx: test str match ok');
 like(http_get("/?aaaaaa=hello world"),
@@ -554,6 +578,53 @@ like(http(
     "Upload" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
 ), qr/403 Forbidden/, 'waf_8001: test body multipart block');
+
+
+like(http(
+    "POST / HTTP/1.1" . CRLF .
+    "Host: localhost" . CRLF .
+    "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlxx" . CRLF .
+    "Content-Length: 430" . CRLF .
+    "Connection: close" . CRLF .
+    CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlxx" . CRLF .
+    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    CRLF .
+    "100000" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlxx" . CRLF .
+    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"ttt.php\"" . CRLF .
+    "Content-Type: application/octet-stream" . CRLF .
+    CRLF .
+    "hello testphp xxxxxxxxxxxxxxxxx" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlxx" . CRLF .
+    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    CRLF .
+    "Upload" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlxx--" . CRLF
+), qr/403 Forbidden/, 'waf_8002: test specify filename body multipart block');
+
+like(http(
+    "POST / HTTP/1.1" . CRLF .
+    "Host: localhost" . CRLF .
+    "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Length: 430" . CRLF .
+    "Connection: close" . CRLF .
+    CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    CRLF .
+    "100000" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"ttt\"" . CRLF .
+    "Content-Type: application/octet-stream" . CRLF .
+    CRLF .
+    "hello testphp xxxxxxxxxxxxxxxxxx" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    CRLF .
+    "Upload" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
+), qr/200 OK/, 'waf_8002: test specify filename body multipart ok');
 
 
 like(http(
