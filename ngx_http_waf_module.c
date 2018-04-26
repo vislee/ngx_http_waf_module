@@ -7,6 +7,10 @@
 #include "libinjection/libinjection.h"
 #include "libinjection/libinjection_sqli.h"
 
+#ifdef NGX_WAF_MAGIC
+#include <magic.h>
+#endif
+
 #ifdef NGX_DEBUG
 #include <assert.h>
 #endif
@@ -138,30 +142,32 @@ ngx_http_waf_get_act(ngx_uint_t flag) {
 #define NGX_HTTP_WAF_MZ_G_HEADERS        0x00004
 #define NGX_HTTP_WAF_MZ_G_BODY           0x00008
 #define NGX_HTTP_WAF_MZ_G_RAW_BODY       0x01000
-// multipart/form-data
-#define NGX_HTTP_WAF_MZ_G_FILE_BODY      0x02000
+
 
 // specify variable
-#define NGX_HTTP_WAF_MZ_VAR              0x000F0
+#define NGX_HTTP_WAF_MZ_VAR              0x040F0
 #define NGX_HTTP_WAF_MZ_VAR_URL          0x00010
 #define NGX_HTTP_WAF_MZ_VAR_ARGS         0x00020
 #define NGX_HTTP_WAF_MZ_VAR_HEADERS      0x00040
-// for form-xxx
 #define NGX_HTTP_WAF_MZ_VAR_BODY         0x00080
 
 // regex
-#define NGX_HTTP_WAF_MZ_X                0x00F00
+#define NGX_HTTP_WAF_MZ_X                0x08F00
 #define NGX_HTTP_WAF_MZ_X_URL            0x00100
 #define NGX_HTTP_WAF_MZ_X_ARGS           0x00200
 #define NGX_HTTP_WAF_MZ_X_HEADERS        0x00400
-// for form-xxx
 #define NGX_HTTP_WAF_MZ_X_BODY           0x00800
 
 #define NGX_HTTP_WAF_MZ_URL              0x00111
 #define NGX_HTTP_WAF_MZ_ARGS             0x00222
 #define NGX_HTTP_WAF_MZ_HEADERS          0x00444
 #define NGX_HTTP_WAF_MZ_BODY             0x01888
+#define NGX_HTTP_WAF_MZ_FILE_BODY        0x0E000
+
+// multipart/form-data filename= content=
 #define NGX_HTTP_WAF_MZ_G_FILE_BODY      0x02000
+// #define NGX_HTTP_WAF_MZ_VAR_FILE_BODY    0x04000
+#define NGX_HTTP_WAF_MZ_X_FILE_BODY      0x08000
 
 
 #define ngx_http_waf_mz_gt(one, two)                            \
@@ -352,15 +358,31 @@ struct ngx_http_waf_rule_parser_s {
 };
 
 
+/**
+ * include: line:2-5: kv include k or v line:6-11: MZ_G include MZ_VAR or MZ_X
+ * equal:   line:13-14 MZ==MZ and name==name
+ */
 #define ngx_http_waf_mz_ge(one, two)  (                               \
-    ( (((one)->flag&NGX_HTTP_WAF_STS_MZ_KV)      \
-        & ((two)->flag&NGX_HTTP_WAF_STS_MZ_KV))                       \
-    && (((one)->flag&NGX_HTTP_WAF_STS_MZ_KV)     \
-        >= ((two)->flag&NGX_HTTP_WAF_STS_MZ_KV))                      \
-    && ((((one)->flag<<4)&(two)->flag) || (((one)->flag<<8)&(two)->flag)) )   \
+    ( \
+    ( ((one)->flag&NGX_HTTP_WAF_STS_MZ_KV)            \
+        & ((two)->flag&NGX_HTTP_WAF_STS_MZ_KV) )                      \
+    && ( ((one)->flag&NGX_HTTP_WAF_STS_MZ_KV)         \
+        >= ((two)->flag&NGX_HTTP_WAF_STS_MZ_KV) )                     \
+    && ( ( (two)->flag < NGX_HTTP_WAF_MZ_G_RAW_BODY   \
+        && ((((one)->flag<<4)&(two)->flag)        \
+            || (((one)->flag<<8)&(two)->flag)) )      \
+        || ( (two)->flag > NGX_HTTP_WAF_MZ_G_RAW_BODY \
+        && ((((one)->flag<<1)&(two)->flag)        \
+            || (((one)->flag<<2)&(two)->flag)) )  )                   \
+    ) \
     || ( ((one)->flag == (two)->flag) && (one)->name.len == (two)->name.len   \
     && ngx_strncmp((one)->name.data, (two)->name.data, (one)->name.len) == 0 )\
 )
+
+/**
+ * one: #ARGS or @ARGS
+ * two: ARGS
+ */
 #define ngx_http_waf_wl_mz(one, two) (                              \
     (((one)->flag & NGX_HTTP_WAF_MZ_G) == ((two)->flag & NGX_HTTP_WAF_MZ_G))  \
     && (((one)->flag & NGX_HTTP_WAF_STS_MZ_KV) != NGX_HTTP_WAF_STS_MZ_KV)     \
@@ -406,6 +428,9 @@ static ngx_int_t ngx_http_waf_parse_rule_whitelist(ngx_conf_t *cf,
 static ngx_int_t ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf,
     ngx_str_t *str, ngx_http_waf_rule_parser_t *parser,
     ngx_http_waf_rule_opt_t *opt);
+static ngx_int_t  ngx_http_waf_parse_rule_libmagic(ngx_conf_t *cf,
+    ngx_str_t *str, ngx_http_waf_rule_parser_t *parser,
+    ngx_http_waf_rule_opt_t *opt);
 static ngx_int_t  ngx_http_waf_add_rule_handler(ngx_conf_t *cf,
     ngx_http_waf_public_rule_t *pr, ngx_http_waf_zone_t *mz,
     void *conf, ngx_uint_t offset);
@@ -428,6 +453,8 @@ static ngx_int_t ngx_http_waf_rule_str_rx_handler(
 static ngx_int_t ngx_http_waf_rule_str_sqli_handler(
     ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
 static ngx_int_t ngx_http_waf_rule_str_xss_handler(
+    ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
+static ngx_int_t ngx_http_waf_rule_magic_mimetype_handler(
     ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
 static ngx_int_t ngx_http_waf_check_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
@@ -504,6 +531,12 @@ static ngx_conf_bitmask_t  ngx_http_waf_rule_zone_item[] = {
     { ngx_string("#FILE"),
       NGX_HTTP_WAF_MZ_G_FILE_BODY|NGX_HTTP_WAF_STS_MZ_VAL },
 
+    // { ngx_string("V_FILE"),
+    //   NGX_HTTP_WAF_MZ_VAR_FILE_BODY|NGX_HTTP_WAF_STS_MZ_VAL },
+
+    { ngx_string("X_FILE:"),
+      NGX_HTTP_WAF_MZ_X_FILE_BODY |NGX_HTTP_WAF_STS_MZ_VAL },
+
     { ngx_string("V_BODY:"),
       NGX_HTTP_WAF_MZ_VAR_BODY|NGX_HTTP_WAF_STS_MZ_VAL },
 
@@ -542,7 +575,7 @@ static ngx_http_waf_add_rule_t  ngx_http_waf_conf_add_rules[] = {
       offsetof(ngx_http_waf_loc_conf_t, raw_body),
       ngx_http_waf_add_rule_handler },
 
-    { NGX_HTTP_WAF_MZ_G_FILE_BODY,
+    { NGX_HTTP_WAF_MZ_G_FILE_BODY|NGX_HTTP_WAF_MZ_X_FILE_BODY,
       offsetof(ngx_http_waf_main_conf_t, body_file),
       offsetof(ngx_http_waf_loc_conf_t, body_file),
       ngx_http_waf_add_rule_handler },
@@ -600,13 +633,13 @@ static ngx_http_waf_add_wl_part_t  ngx_http_waf_conf_add_wl[] = {
 
 
 static ngx_http_waf_rule_parser_t  ngx_http_waf_rule_parser_item[] = {
-    {ngx_string("id:"),     ngx_http_waf_parse_rule_id},
-    {ngx_string("s:"),      ngx_http_waf_parse_rule_score},
-    {ngx_string("str:"),    ngx_http_waf_parse_rule_str},
-    {ngx_string("libinj:"), ngx_http_waf_parse_rule_libinj},
+    {ngx_string("id:"),        ngx_http_waf_parse_rule_id},
+    {ngx_string("s:"),         ngx_http_waf_parse_rule_score},
+    {ngx_string("str:"),       ngx_http_waf_parse_rule_str},
+    {ngx_string("libinj:"),    ngx_http_waf_parse_rule_libinj},
+    {ngx_string("libmagic:"),  ngx_http_waf_parse_rule_libmagic},
     // TODO:
     // {ngx_string("hash:"), ngx_http_waf_parse_rule_hash},
-    // {ngx_string("magic:"), ngx_http_waf_parse_rule_magic},
     {ngx_string("z:"),      ngx_http_waf_parse_rule_zone},
     {ngx_string("wl:"),     ngx_http_waf_parse_rule_whitelist},
     {ngx_string("note:"),   ngx_http_waf_parse_rule_note},
@@ -731,6 +764,35 @@ static u_char *ngx_strpbrk(u_char *b, u_char *e, char *s) {
     }
 
     return NULL;
+}
+
+u_char *
+ngx_memnstr(u_char *s1, char *s2, size_t len)
+{
+    u_char  c1, c2;
+    size_t  n;
+
+    c2 = *(u_char *) s2++;
+
+    n = ngx_strlen(s2);
+
+    do {
+        do {
+            if (len-- == 0) {
+                return NULL;
+            }
+
+            c1 = *s1++;
+
+        } while (c1 != c2);
+
+        if (n > len) {
+            return NULL;
+        }
+
+    } while (ngx_memcmp((char *)s1, s2, n) != 0);
+
+    return --s1;
 }
 
 
@@ -2246,6 +2308,49 @@ ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
 }
 
 
+// magic:mime_type@application/pdf
+static ngx_int_t
+ngx_http_waf_parse_rule_libmagic(ngx_conf_t *cf, ngx_str_t *str,
+    ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
+{
+    u_char              *p, *e;
+    static ngx_str_t     m_type = ngx_string("mime_type@");
+
+    p = str->data + parser->prefix.len;
+    e = str->data + str->len;
+
+    if (*p == '!') {
+        p++;
+        opt->p_rule->not = 1;
+    }
+
+    if (p + m_type.len > e || ngx_strncmp(p, m_type.data, m_type.len) != 0) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                "invalid magic type in arguments \"%V\"", str);
+        return NGX_ERROR;
+    }
+
+    p += m_type.len;
+
+    opt->p_rule->str.len  = e - p;
+    opt->p_rule->str.data = ngx_pcalloc(cf->pool,
+        opt->p_rule->str.len + 1);
+    if (opt->p_rule->str.data == NULL) {
+        return NGX_ERROR;
+    }
+
+    ngx_memcpy(opt->p_rule->str.data, p, opt->p_rule->str.len);
+    opt->p_rule->handler = ngx_http_waf_rule_magic_mimetype_handler;
+
+    #ifndef NGX_WAF_MAGIC
+    ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
+                "invalid libmagic in arguments \"%V\". "
+                "please install libmagic.", str);
+    #endif
+
+    return NGX_OK;
+}
+
 // -- rquest deal -------
 
 static void
@@ -2462,10 +2567,10 @@ ngx_http_waf_rule_str_startwith_handler(ngx_http_waf_public_rule_t *pr,
     if (s->len > pr->str.len && ngx_strncasecmp(s->data,
         pr->str.data, pr->str.len) == 0)
     {
-        return NGX_OK;
+        return pr->not? NGX_ERROR: NGX_OK;
     }
 
-    return NGX_ERROR;
+    return pr->not? NGX_OK: NGX_ERROR;
 }
 
 
@@ -2484,10 +2589,10 @@ ngx_http_waf_rule_str_endwith_handler(ngx_http_waf_public_rule_t *pr,
 
     p = s->data + s->len - pr->str.len;
     if (ngx_strncasecmp(p, pr->str.data, pr->str.len) == 0) {
-        return NGX_OK;
+        return pr->not? NGX_ERROR: NGX_OK;
     }
 
-    return NGX_ERROR;
+    return pr->not? NGX_OK: NGX_ERROR;
 }
 
 
@@ -2504,10 +2609,10 @@ ngx_http_waf_rule_str_rx_handler(ngx_http_waf_public_rule_t *pr,
 
     n = ngx_regex_exec(pr->regex, s, NULL, 0);
     if (n == NGX_REGEX_NO_MATCHED) {
-        return NGX_ERROR;
+        return pr->not? NGX_OK: NGX_ERROR;
     }
 
-    return NGX_OK;
+    return pr->not? NGX_ERROR: NGX_OK;
 }
 
 
@@ -2548,6 +2653,53 @@ ngx_http_waf_rule_str_xss_handler(ngx_http_waf_public_rule_t *pr,
     }
 
     return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_http_waf_rule_magic_mimetype_handler(ngx_http_waf_public_rule_t *pr,
+    ngx_str_t *s)
+{
+    u_char      *p = NULL;
+    ngx_int_t    res = NGX_ERROR;
+
+    if (s == NULL || s->data == NULL || s->len == 0) {
+        return NGX_ERROR;
+    }
+
+#ifdef NGX_WAF_MAGIC
+    magic_t  cookie;
+
+    cookie = magic_open(MAGIC_MIME_TYPE);
+    if (cookie == NULL) {
+        res = NGX_ERROR;
+        goto done;
+    }
+    magic_load(cookie, NULL);
+
+    p = (u_char *) magic_buffer(cookie, s->data, s->len);
+    if (p == NULL) {
+        res = NGX_ERROR;
+        goto done;
+    }
+
+    if (ngx_strncasecmp(p, pr->str.data, pr->str.len) == 0) {
+        res = pr->not? NGX_ERROR: NGX_OK;
+        goto done;
+    }
+
+    res = pr->not? NGX_OK: NGX_ERROR;
+
+    done:
+    if (cookie != NULL) {
+        magic_close(cookie);
+    }
+
+    return res;
+
+#endif
+
+    return NGX_ERROR;
 }
 
 
@@ -2914,7 +3066,7 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 {
     u_char                       *p, *q, *e, *t;
     ngx_str_t                     body, *type, key, val, content, boundary;
-    ngx_int_t                     is_file, over;
+    ngx_int_t                     is_file, over, quotes;
     ngx_chain_t                  *cl;
     ngx_http_waf_ctx_t           *ctx;
 
@@ -2988,6 +3140,11 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 
 
     // TODO: return
+    if (wlcf->body->nelts == 0 && wlcf->body_file->nelts == 0
+        && wlcf->body_var_hash.size == 0)
+    {
+        return;
+    }
 
     // parse body
     if (ct_urlencode.len <= type->len
@@ -3083,7 +3240,7 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
         q = p;
         e = body.data + body.len;
 
-        p = ngx_strnstr(p, (char *)boundary.data, e - p);
+        p = ngx_memnstr(p, (char *)boundary.data, e - p);
         if (p == NULL) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "http waf module parse multipart body boundary start error");
@@ -3094,6 +3251,8 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
         while (p < e) {
             over = 1;
             is_file = 0;
+            quotes = 0;
+
             ngx_str_null(&key);
             ngx_str_null(&val);
             ngx_str_null(&content);
@@ -3123,9 +3282,14 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                 {
                     p += 9;
                 }
+
+                // maybe
+                while((*p == ':' || *p == ' ') && p < e) p++;
             }
 
             while (p < e) {
+                quotes = 0;
+
                 // is not filename=
                 if (*(p-1) != 'e' && *(p-1) != 'E'
                     && ngx_strncasecmp(p, (u_char *)"name=", 5) == 0)
@@ -3133,15 +3297,22 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                     p += 5;  // sizeof(name=)-1
 
                     // maybe
-                    while(*p == ' ' || *p == '"' || *p == '\'') p++;
+                    while(*p == ' ' || *p == '"' || *p == '\'') {
+                        if (*p == '"' || *p == '\'') {
+                            quotes = 1;
+                        }
+                        p++;
+                    }
                     q = p;
 
-                    p = ngx_strpbrk(p, e, "\"'; \r");
-                    if (p == NULL) {
-                        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                            "http waf multipart body name end error");
-                        goto done;
-                    }
+                    do {
+                        p = ngx_strpbrk(p, e, "\"'; \r");
+                        if (p == NULL) {
+                            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                                "http waf multipart body name end error");
+                            goto done;
+                        }
+                    } while (*(p - 1) == '\\' || (quotes && *(q - 1) != *p));
 
                     key.data = q;
                     key.len = p - q;
@@ -3152,30 +3323,42 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                     {
                         p++;
                     }
+                    quotes = 0;
                 }
 
                 if (over && ngx_strncasecmp(p, (u_char *)"filename=", 9) == 0) {
                     p += 9;    // sizeof("filename=")-1
                     // maybe
-                    while (*p == '"' || *p == '\'' || *p == ' ') p++;
-                    q = p;
-                    p = ngx_strpbrk(p, e, "\"'; \r");
-                    if (p == NULL) {
-                        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                            "http waf multipart body filename error");
-                        goto done;
+                    while (*p == '"' || *p == '\'' || *p == ' ') {
+                        if (*p == '"' || *p == '\'') {
+                            quotes = 1;
+                        }
+                        p++;
                     }
+                    q = p;
+
+                    do {
+                        p = ngx_strpbrk(p, e, "\"'; \r");
+                        if (p == NULL) {
+                            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                                "http waf multipart body filename error");
+                            goto done;
+                        }
+                    } while (*(p - 1) == '\\' || (quotes && *(q - 1) != *p));
+
 
                     val.data = q;
                     val.len  = p - q;
+
                     while (*p == '"' || *p == '\'' || *p == ' ') p++;
+                    quotes = 0;
                     q = p;
 
                     over = 0;
                     is_file = 1;
 
                     if (*p == ';') {
-                        over = 1;
+                        over = val.len + 1;
                         p++;
                     }
 
@@ -3198,22 +3381,25 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                     ngx_http_waf_rule_filter(r, ctx, &wlcf->body_var_hash,
                         wlcf->body, &key, &val, 0);
 
+                    over = val.len + 1;
                     val.len = 0;
-                    over = 1;
                 }
 
                 if (p[0] == CR && p[1] == LF && p[2] == CR && p[3] == LF) {
                     p += 4;
                     q = p;
+
+                    val.len = over - 1;
                     break;
                 }
 
                 p++;
             }
 
-            p = ngx_strnstr(p, CRLF "--", e - p);
+
+            p = ngx_memnstr(p, CRLF "------", e - p);
             if (p == NULL) {
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
                         "http waf multipart body name's value error");
                 goto done;
             }
@@ -3222,11 +3408,12 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
                 content.data = q;
                 content.len  = p - q;
 
-                ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                  "http waf module score body multipart file: [%V]", &content);
+                ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                  "http waf module score body multipart name: [%V] file: [%V]",
+                  &val, &content);
 
                 ngx_http_waf_rule_filter(r, ctx, NULL, wlcf->body_file,
-                    NULL, &content, 0);
+                    &val, &content, 0);
 
                 is_file = 0;
 
@@ -3249,14 +3436,16 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
             val.len     = 0;
             content.len = 0;
 
-            if (ngx_strnstr(p, (char *)boundary.data, e - p) == NULL) {
+            if (ngx_memnstr(p, (char *)boundary.data, e - p) == NULL) {
                 ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                         "http waf multipart body boundary end error");
                 goto done;
             }
             p += boundary.len;
 
-            if (p + 2 == e && p[0] == '-' && p[1] == '-') {
+            if (p + 4 == e && p[0] == '-' && p[1] == '-'
+                && p[2] == CR && p[3] == LF)
+            {
                 goto done;
             }
         }
