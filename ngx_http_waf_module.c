@@ -2665,10 +2665,10 @@ ngx_http_waf_rule_magic_mimetype_handler(ngx_http_waf_public_rule_t *pr,
     }
 
 #ifdef NGX_WAF_MAGIC
-    magic_t      cookie;
+    magic_t          cookie;
 
-    u_char      *p = NULL;
-    ngx_int_t    res = NGX_ERROR;
+    const char      *p = NULL;
+    ngx_int_t        res = NGX_ERROR;
 
     cookie = magic_open(MAGIC_MIME_TYPE);
     if (cookie == NULL) {
@@ -2677,13 +2677,13 @@ ngx_http_waf_rule_magic_mimetype_handler(ngx_http_waf_public_rule_t *pr,
     }
     magic_load(cookie, NULL);
 
-    p = (u_char *) magic_buffer(cookie, s->data, s->len);
+    p = magic_buffer(cookie, (const void *)s->data, s->len);
     if (p == NULL) {
         res = NGX_ERROR;
         goto done;
     }
 
-    if (ngx_strncasecmp(p, pr->str.data, pr->str.len) == 0) {
+    if (ngx_strncasecmp((u_char *)p, pr->str.data, pr->str.len) == 0) {
         res = pr->not? NGX_ERROR: NGX_OK;
         goto done;
     }
