@@ -6,7 +6,11 @@ if [ "$NGX_PLATFORM" != win32 ]; then
     ngx_feature_incs="#include <magic.h>"
     ngx_feature_path=
     ngx_feature_libs="-lmagic"
-    ngx_feature_test="magic_t cookie = magic_open(MAGIC_MIME_TYPE);"
+    ngx_feature_test="magic_t cookie = magic_open(MAGIC_MIME_TYPE);
+                      if (cookie == NULL) return 1;
+                      if (magic_buffer(cookie, "GIF89a", 6) == NULL)
+                            return 1;
+                      magic_close(cookie);"
     . auto/feature
 
     if [ $ngx_found = yes ]; then
