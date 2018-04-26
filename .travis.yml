@@ -12,6 +12,7 @@ addons:
     - cpanminus
     - lcov
     - libmagic-dev
+    - file-devel
 
 install:
   - gem install coveralls-lcov
