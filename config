@@ -1,3 +1,5 @@
+ngx_waf_libs=""
+
 if [ "$NGX_PLATFORM" != win32 ]; then
     #echo "libmagic check ..."
     ngx_feature="libmagic library"
@@ -14,7 +16,7 @@ if [ "$NGX_PLATFORM" != win32 ]; then
     . auto/feature
 
     if [ $ngx_found = yes ]; then
-        CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
+        ngx_waf_libs="$ngx_waf_libs $ngx_feature_libs"
         ngx_found=no
     fi
 fi
@@ -34,7 +36,7 @@ if test -n "$ngx_module_link"; then
     ngx_module_type=HTTP
     ngx_module_name=$ngx_addon_name
     ngx_module_srcs="$_HTTP_WAF_SRCS"
-    ngx_module_libs=$ngx_feature_libs
+    ngx_module_libs="$ngx_feature_libs $ngx_waf_libs"
     . auto/module
 else
     NGX_ADDON_SRCS="$NGX_ADDON_SRCS $_HTTP_WAF_SRCS"
