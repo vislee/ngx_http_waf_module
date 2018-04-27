@@ -40,7 +40,7 @@ if test -n "$ngx_module_link"; then
     . auto/module
 else
     NGX_ADDON_SRCS="$NGX_ADDON_SRCS $_HTTP_WAF_SRCS"
-    CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
+    CORE_LIBS="$CORE_LIBS $ngx_feature_libs $ngx_waf_libs"
     CORE_INCS="$CORE_INCS $ngx_module_incs"
     HTTP_MODULES="$HTTP_MODULES $ngx_addon_name"
 fi
