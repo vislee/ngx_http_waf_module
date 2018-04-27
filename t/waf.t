@@ -60,6 +60,8 @@ http {
     security_rule id:1118 "str:!le@def" "z:V_ARGS:testnotle";
     security_rule id:1019 "libmagic:mime_type@text/plain" "z:V_ARGS:testmagic";
     security_rule id:1119 "libmagic:!mime_type@text/plain" "z:V_ARGS:testmagicnot";
+    security_rule id:1020 "libmagic:mime_type@error" "z:V_ARGS:testmagicerror";
+    security_rule id:1120 "libmagic:!mime_type@error" "z:V_ARGS:testmagicerrornot";
 
 
     security_rule id:2001 "str:eq@argskv" "z:ARGS";
@@ -158,7 +160,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(108);
+$t->try_run('no waf')->plan(112);
 
 ###############################################################################
 
@@ -232,6 +234,8 @@ like(http_get("/?testge=e"),
     qr/403 Forbidden/, 'waf_1017: test ge block');
 like(http_get("/?testge=d"),
     qr/200 OK/, 'waf_1017: test ge ok');
+like(http_get("/?testge=a"),
+    qr/200 OK/, 'waf_1017: test ge ok');
 
 like(http_get("/?testnotge=e"),
     qr/200 OK/, 'waf_1117: test notge ok');
@@ -246,11 +250,18 @@ like(http_get("/?testle=d"),
     qr/403 Forbidden/, 'waf_1018: test lt block');
 like(http_get("/?testle=e"),
     qr/200 OK/, 'waf_1018: test le ok');
+like(http_get("/?testle=a"),
+    qr/403 Forbidden/, 'waf_1018: test le block');
+
 
 like(http_get("/?testmagic=xxx"),
     qr/403 Forbidden/, 'waf_1019: test magic block');
 like(http_get("/?testmagicnot=xxx"),
     qr/200 OK/, 'waf_1019: test magic ok');
+like(http_get("/?testmagicerror=xxx"),
+    qr/200 OK/, 'waf_1020: test magic ok');
+like(http_get("/?testmagicerrornot=xxx"),
+    qr/403 Forbidden/, 'waf_1120: test magic block');
 
 like(http_get("/?testnotle=d"),
     qr/200 OK/, 'waf_1118: test notlt ok');
