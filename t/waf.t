@@ -65,6 +65,7 @@ http {
     security_rule id:1501 "hash:md5@32269ae63a25306bb46a03d6f38bd2b7" "z:V_ARGS:testmd5";
     security_rule id:1502 "hash:!md5@4935f6e27eff994304a1a72768581ce5" "z:V_ARGS:testnotmd5";
     security_rule id:1503 "hash:crc32@4160194954" "z:V_ARGS:testcrc32";
+    security_rule id:1504 "hash:crc32_long@800313341" "z:V_ARGS:testcrc32_long";
 
     security_rule id:2001 "str:eq@argskv" "z:ARGS";
     security_rule id:2002 "str:eq@argsonlyval" "z:#ARGS";
@@ -163,7 +164,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(120);
+$t->try_run('no waf')->plan(122);
 
 ###############################################################################
 
@@ -279,7 +280,12 @@ like(http_get("/?testnotmd5=testnotmd5"),
 like(http_get("/?testcrc32=testcrc32"),
     qr/403 Forbidden/, 'waf_1503: test hash crc32 block');
 like(http_get("/?testcrc32=testcrc32xx"),
-    qr/200 OK/, 'waf_1502: test hash crc32 ok');
+    qr/200 OK/, 'waf_1503: test hash crc32 ok');
+
+like(http_get("/?testcrc32_long=testcrc32long"),
+    qr/403 Forbidden/, 'waf_1504: test hash crc32_long block');
+like(http_get("/?testcrc32_long=testcrc32longxx"),
+    qr/200 OK/, 'waf_1504: test hash crc32_long ok');
 
 like(http_get("/?testnotle=d"),
     qr/200 OK/, 'waf_1118: test notlt ok');
