@@ -62,7 +62,9 @@ http {
     security_rule id:1119 "libmagic:!mime_type@text/plain" "z:V_ARGS:testmagicnot";
     security_rule id:1020 "libmagic:mime_type@error" "z:V_ARGS:testmagicerror";
     security_rule id:1120 "libmagic:!mime_type@error" "z:V_ARGS:testmagicerrornot";
-
+    security_rule id:1501 "hash:md5@32269ae63a25306bb46a03d6f38bd2b7" "z:V_ARGS:testmd5";
+    security_rule id:1502 "hash:!md5@4935f6e27eff994304a1a72768581ce5" "z:V_ARGS:testnotmd5";
+    security_rule id:1503 "hash:crc32@4160194954" "z:V_ARGS:testcrc32";
 
     security_rule id:2001 "str:eq@argskv" "z:ARGS";
     security_rule id:2002 "str:eq@argsonlyval" "z:#ARGS";
@@ -95,6 +97,7 @@ http {
 
     security_rule id:7001 "str:ct@testbody" "z:#RAW_BODY";
     security_rule id:7002 "str:eq@testurlencodebody" "z:V_BODY:foo";
+    security_rule id:7003 "str:eq@multibar" "z:V_BODY:multifoo";
 
     security_rule id:8001 "str:ct@eval" "z:#FILE";
     security_rule id:8002 "str:ct@testphp" "z:X_FILE:^[a-z]{1,5}\.php$";
@@ -160,7 +163,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(112);
+$t->try_run('no waf')->plan(120);
 
 ###############################################################################
 
@@ -262,6 +265,21 @@ like(http_get("/?testmagicerror=xxx"),
     qr/200 OK/, 'waf_1020: test magic ok');
 like(http_get("/?testmagicerrornot=xxx"),
     qr/403 Forbidden/, 'waf_1120: test magic block');
+
+like(http_get("/?testmd5=testmd5"),
+    qr/403 Forbidden/, 'waf_1501: test md5 hash block');
+like(http_get("/?testmd5=testmd5xx"),
+    qr/200 OK/, 'waf_1501: test md5 hash ok');
+
+like(http_get("/?testnotmd5=testnotmd5xx"),
+    qr/403 Forbidden/, 'waf_1502: test hash not md5 block');
+like(http_get("/?testnotmd5=testnotmd5"),
+    qr/200 OK/, 'waf_1502: test hash not md5 ok');
+
+like(http_get("/?testcrc32=testcrc32"),
+    qr/403 Forbidden/, 'waf_1503: test hash crc32 block');
+like(http_get("/?testcrc32=testcrc32xx"),
+    qr/200 OK/, 'waf_1502: test hash crc32 ok');
 
 like(http_get("/?testnotle=d"),
     qr/200 OK/, 'waf_1118: test notlt ok');
@@ -524,20 +542,68 @@ like(http(
     "POST / HTTP/1.1" . CRLF .
     "Host: localhost" . CRLF .
     "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Length: 410" . CRLF .
+    "Connection: close" . CRLF .
+    CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name='MAX_FILE_SIZE'" . CRLF .
+    CRLF .
+    "100000" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name='uploaded'; filename='ttt'" . CRLF .
+    "Content-Type: application/octet-stream" . CRLF .
+    CRLF .
+    "<?php \@test(\$_POST['pass']);?>" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name='multifoo'" . CRLF .
+    CRLF .
+    "multibar" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
+), qr/403 Forbidden/, 'waf_7003: test body multipart block');
+
+
+like(http(
+    "POST / HTTP/1.1" . CRLF .
+    "Host: localhost" . CRLF .
+    "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Length: 410" . CRLF .
+    "Connection: close" . CRLF .
+    CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name='MAX_FILE_SIZE'" . CRLF .
+    CRLF .
+    "100000" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name='uploaded'; filename='ttt'" . CRLF .
+    "Content-Type: application/octet-stream" . CRLF .
+    CRLF .
+    "<?php \@test(\$_POST['pass']);?>" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
+    "Content-Disposition: form-data; name='multifoo'" . CRLF .
+    CRLF .
+    "multifoo" . CRLF .
+    "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
+), qr/200 OK/, 'waf_7003: test body multipart block');
+
+
+like(http(
+    "POST / HTTP/1.1" . CRLF .
+    "Host: localhost" . CRLF .
+    "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
     "Content-Length: 430" . CRLF .
     "Connection: close" . CRLF .
     CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    "Content-Disposition: form-data; name='MAX_FILE_SIZE'" . CRLF .
     CRLF .
     "100000" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"ttt\"" . CRLF .
+    "Content-Disposition: form-data; name='uploaded'; filename='ttt'" . CRLF .
     "Content-Type: application/octet-stream" . CRLF .
     CRLF .
     "<?php \@eval(\$_POST['pass']);?>" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    "Content-Disposition: form-data; name='Upload'" . CRLF .
     CRLF .
     "Upload" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
@@ -551,16 +617,16 @@ like(http(
     "Connection: close" . CRLF .
     CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    "Content-Disposition: form-data; name='MAX_FILE_SIZE'" . CRLF .
     CRLF .
     "100000" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"ttt\"" . CRLF .
+    "Content-Disposition: form-data; name='uploaded'; filename='ttt'" . CRLF .
     "Content-Type: application/octet-stream" . CRLF .
     CRLF .
     "<?php \@test(\$_POST['pass']);?>" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    "Content-Disposition: form-data; name='Upload'" . CRLF .
     CRLF .
     "Upload" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
@@ -575,16 +641,16 @@ like(http(
     "Connection: close" . CRLF .
     CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    "Content-Disposition: form-data; name='MAX_FILE_SIZE'" . CRLF .
     CRLF .
     "100000" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; filename=xxx; name=\"uploaded\"; filename=\"empty\"" . CRLF .
+    "Content-Disposition: form-data; filename=xxx; name='uploaded'; filename='empty'" . CRLF .
     "Content-Type: application/octet-stream" . CRLF .
     CRLF .
     "test eval" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    "Content-Disposition: form-data; name='Upload'" . CRLF .
     CRLF .
     "Upload" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
@@ -599,20 +665,21 @@ like(http(
     "Connection: close" . CRLF .
     CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlxx" . CRLF .
-    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    "Content-Disposition: form-data; name='MAX_FILE_SIZE'" . CRLF .
     CRLF .
     "100000" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlxx" . CRLF .
-    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"ttt.php\"" . CRLF .
+    "Content-Disposition: form-data; name='uploaded'; filename='ttt.php'" . CRLF .
     "Content-Type: application/octet-stream" . CRLF .
     CRLF .
     "hello testphp xxxxxxxxxxxxxxxxx" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlxx" . CRLF .
-    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    "Content-Disposition: form-data; name=Upload" . CRLF .
     CRLF .
     "Upload" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlxx--" . CRLF
 ), qr/403 Forbidden/, 'waf_8002: test specify filename body multipart block');
+
 
 like(http(
     "POST / HTTP/1.1" . CRLF .
@@ -622,16 +689,16 @@ like(http(
     "Connection: close" . CRLF .
     CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    "Content-Disposition: form-data; name='MAX_FILE_SIZE'" . CRLF .
     CRLF .
     "100000" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"uploaded\"; filename=\"ttt\"" . CRLF .
+    "Content-Disposition: form-data; name='uploaded'; filename='ttt'" . CRLF .
     "Content-Type: application/octet-stream" . CRLF .
     CRLF .
     "hello testphp xxxxxxxxxxxxxxxxxx" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    "Content-Disposition: form-data; name='Upload'" . CRLF .
     CRLF .
     "Upload" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
@@ -646,11 +713,11 @@ like(http(
     "Connection: close" . CRLF .
     CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    "Content-Disposition: form-data; name='MAX_FILE_SIZE'" . CRLF .
     CRLF .
     "100000" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"uploaded\"; filename=aaa; filename=\"empty\"" . CRLF .
+    "Content-Disposition: form-data; name='uploaded'; filename=aaa; filename='empty'" . CRLF .
     "Content-Type: application/octet-stream" . CRLF .
     CRLF .
     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
@@ -696,7 +763,7 @@ like(http(
     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
     "eval" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    "Content-Disposition: form-data; name='Upload'" . CRLF .
     CRLF .
     "Upload" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
@@ -712,11 +779,11 @@ like(http(
     "Connection: close" . CRLF .
     CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"MAX_FILE_SIZE\"" . CRLF .
+    "Content-Disposition: form-data; name='MAX_FILE_SIZE'" . CRLF .
     CRLF .
     "100000" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"uploaded\"; filename=aaa; filename=\"empty\"" . CRLF .
+    "Content-Disposition: form-data; name='uploaded'; filename=aaa; filename='empty'" . CRLF .
     "Content-Type: application/octet-stream" . CRLF .
     CRLF .
     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
@@ -872,7 +939,7 @@ like(http(
     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" .
     "eval" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4" . CRLF .
-    "Content-Disposition: form-data; name=\"Upload\"" . CRLF .
+    "Content-Disposition: form-data; name='Upload'" . CRLF .
     CRLF .
     "Upload" . CRLF .
     "------WebKitFormBoundaryoWJTVDAYOLw4Tlo4--" . CRLF
