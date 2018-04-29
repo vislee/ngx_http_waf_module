@@ -226,7 +226,7 @@ struct ngx_http_waf_public_rule_s {
     ngx_str_t               str;
     ngx_regex_t            *regex;
     ngx_array_t            *scores;  /* ngx_http_waf_score_t. maybe null */
-    // TODO: decode_handler
+
     ngx_array_t                *decode_handlers;
     ngx_http_waf_rule_match_pt  handler;
     unsigned                    not:1;
@@ -2570,7 +2570,8 @@ static ngx_int_t
 ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
     ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
 {
-    u_char             *p;
+    u_char             *p, *e;
+    ngx_int_t           offset;
 
     static ngx_str_t    sql = ngx_string("sql");
     static ngx_str_t    xss = ngx_string("xss");
@@ -2582,6 +2583,15 @@ ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
     }
 
     p = str->data + parser->prefix.len;
+    e = str->data + str->len;
+
+    offset = ngx_http_waf_parse_rule_decode(cf, opt->p_rule->decode_handlers,
+        p, e - 4);
+    if (offset == NGX_ERROR) {
+        return NGX_ERROR;
+    }
+
+    p += offset;
 
     if (ngx_strncmp(p, sql.data, sql.len) == 0) {
         opt->p_rule->str = sql;
