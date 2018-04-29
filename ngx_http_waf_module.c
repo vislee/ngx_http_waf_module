@@ -192,6 +192,8 @@ typedef struct ngx_http_waf_rule_s  ngx_http_waf_rule_t;
 typedef struct ngx_http_waf_public_rule_s  ngx_http_waf_public_rule_t;
 typedef ngx_int_t (*ngx_http_waf_rule_match_pt)(
     ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
+typedef ngx_int_t (*ngx_http_waf_rule_decode_pt)(ngx_http_request_t *r,
+    ngx_str_t *dst, ngx_str_t *src, ngx_uint_t destory);
 
 // for check rule
 typedef struct ngx_http_waf_check_s {
@@ -224,8 +226,8 @@ struct ngx_http_waf_public_rule_s {
     ngx_str_t               str;
     ngx_regex_t            *regex;
     ngx_array_t            *scores;  /* ngx_http_waf_score_t. maybe null */
-
     // TODO: decode_handler
+    ngx_array_t                *decode_handlers;
     ngx_http_waf_rule_match_pt  handler;
     unsigned                    not:1;
 };
@@ -348,6 +350,12 @@ typedef struct ngx_http_waf_add_wl_part_s {
 } ngx_http_waf_add_wl_part_t;
 
 
+typedef struct ngx_http_waf_rule_decode_s {
+    ngx_str_t                    suffix;
+    ngx_http_waf_rule_decode_pt  handler;
+} ngx_http_waf_rule_decode_t;
+
+
 typedef struct ngx_http_waf_rule_parser_s ngx_http_waf_rule_parser_t;
 typedef ngx_int_t (*ngx_http_waf_rule_item_parse_pt)(ngx_conf_t *cf,
     ngx_str_t *str, ngx_http_waf_rule_parser_t *parser,
@@ -408,6 +416,10 @@ static char *ngx_http_waf_set_log(ngx_conf_t *cf, ngx_command_t *cmd,
 
 static ngx_int_t ngx_http_waf_parse_rule(ngx_conf_t *cf,
     ngx_http_waf_rule_opt_t *opt);
+static ngx_int_t ngx_http_waf_decode_base64(ngx_http_request_t *r,
+    ngx_str_t *dst, ngx_str_t *src, ngx_uint_t destory);
+static ngx_int_t ngx_http_waf_decode_url(ngx_http_request_t *r,
+    ngx_str_t *dst, ngx_str_t *src, ngx_uint_t destory);
 static ngx_int_t ngx_http_waf_parse_rule_id(ngx_conf_t *cf, ngx_str_t *str,
     ngx_http_waf_rule_parser_t *parser,
     ngx_http_waf_rule_opt_t *opt);
@@ -642,6 +654,14 @@ static ngx_http_waf_add_wl_part_t  ngx_http_waf_conf_add_wl[] = {
 };
 
 
+static ngx_http_waf_rule_decode_t  ngx_http_waf_rule_decode[] = {
+    {ngx_string("base64"),    ngx_http_waf_decode_base64},
+    {ngx_string("url"),       ngx_http_waf_decode_url},
+
+    {ngx_null_string,         NULL}
+};
+
+
 static ngx_http_waf_rule_parser_t  ngx_http_waf_rule_parser_item[] = {
     {ngx_string("id:"),        ngx_http_waf_parse_rule_id},
     {ngx_string("s:"),         ngx_http_waf_parse_rule_score},
@@ -760,6 +780,7 @@ ngx_http_waf_create_loc_conf(ngx_conf_t *cf)
     return wlcf;
 }
 
+
 // -- public ---------------
 static u_char *ngx_strpbrk(u_char *b, u_char *e, char *s) {
     u_char *p = b;
@@ -774,6 +795,7 @@ static u_char *ngx_strpbrk(u_char *b, u_char *e, char *s) {
 
     return NULL;
 }
+
 
 u_char *
 ngx_memnstr(u_char *s1, char *s2, size_t len)
@@ -805,6 +827,141 @@ ngx_memnstr(u_char *s1, char *s2, size_t len)
 }
 
 
+static void
+ngx_http_waf_unescape_uri(u_char **dst, u_char **src, size_t size,
+    ngx_uint_t type)
+{
+    u_char  *d, *s, ch, c, decoded;
+    enum {
+        sw_usual = 0,
+        sw_quoted,
+        sw_quoted_second
+    } state;
+
+    d = *dst;
+    s = *src;
+
+    state = 0;
+    decoded = 0;
+
+    while (size--) {
+
+        ch = *s++;
+
+        switch (state) {
+        case sw_usual:
+            if (ch == '?'
+                && (type & (NGX_UNESCAPE_URI|NGX_UNESCAPE_REDIRECT)))
+            {
+                *d++ = ch;
+                goto done;
+            }
+
+            if (ch == '%') {
+                state = sw_quoted;
+                break;
+            }
+
+            if (ch == '+') {
+                *d++ = ' ';
+                break;
+            }
+
+            *d++ = ch;
+            break;
+
+        case sw_quoted:
+
+            if (ch >= '0' && ch <= '9') {
+                decoded = (u_char) (ch - '0');
+                state = sw_quoted_second;
+                break;
+            }
+
+            c = (u_char) (ch | 0x20);
+            if (c >= 'a' && c <= 'f') {
+                decoded = (u_char) (c - 'a' + 10);
+                state = sw_quoted_second;
+                break;
+            }
+
+            /* the invalid quoted character */
+
+            state = sw_usual;
+
+            *d++ = ch;
+
+            break;
+
+        case sw_quoted_second:
+
+            state = sw_usual;
+
+            if (ch >= '0' && ch <= '9') {
+                ch = (u_char) ((decoded << 4) + ch - '0');
+
+                if (type & NGX_UNESCAPE_REDIRECT) {
+                    if (ch > '%' && ch < 0x7f) {
+                        *d++ = ch;
+                        break;
+                    }
+
+                    *d++ = '%'; *d++ = *(s - 2); *d++ = *(s - 1);
+                    break;
+                }
+
+                *d++ = ch;
+
+                break;
+            }
+
+            c = (u_char) (ch | 0x20);
+            if (c >= 'a' && c <= 'f') {
+                ch = (u_char) ((decoded << 4) + c - 'a' + 10);
+
+                if (type & NGX_UNESCAPE_URI) {
+                    if (ch == '?') {
+                        *d++ = ch;
+                        goto done;
+                    }
+
+                    *d++ = ch;
+                    break;
+                }
+
+                if (type & NGX_UNESCAPE_REDIRECT) {
+                    if (ch == '?') {
+                        *d++ = ch;
+                        goto done;
+                    }
+
+                    if (ch > '%' && ch < 0x7f) {
+                        *d++ = ch;
+                        break;
+                    }
+
+                    *d++ = '%'; *d++ = *(s - 2); *d++ = *(s - 1);
+                    break;
+                }
+
+                *d++ = ch;
+
+                break;
+            }
+
+            /* the invalid quoted character */
+
+            break;
+        }
+    }
+
+done:
+
+    *dst = d;
+    *src = s;
+}
+
+
 static u_char*
 ngx_http_waf_score_tag(u_char *b, u_char *e, char *s) {
     u_char *p = b;
@@ -822,6 +979,7 @@ ngx_http_waf_score_tag(u_char *b, u_char *e, char *s) {
 
     return NULL;
 }
+
 
 static ngx_int_t
 ngx_array_binary_search(ngx_array_t *a, void *v,
@@ -1532,6 +1690,12 @@ ngx_http_waf_parse_rule(ngx_conf_t *cf, ngx_http_waf_rule_opt_t *opt)
         return NGX_ERROR;
     }
 
+    opt->p_rule->decode_handlers = ngx_array_create(cf->pool, 2,
+        sizeof(ngx_http_waf_rule_decode_pt));
+    if (opt->p_rule->decode_handlers == NULL) {
+        return NGX_ERROR;
+    }
+
     for(i = 1; i < cf->args->nelts; i++) {
         vailid = 0;
         for (j = 0; ngx_http_waf_rule_parser_item[j].prefix.data != NULL; j++) {
@@ -1933,6 +2097,59 @@ ngx_http_waf_set_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 
 static ngx_int_t
+ngx_http_waf_decode_base64(ngx_http_request_t *r,
+    ngx_str_t *dst, ngx_str_t *src, ngx_uint_t destory)
+{
+    dst->len = ngx_base64_decoded_length(src->len);
+    dst->data = ngx_pnalloc(r->pool, dst->len + 1);
+    if (dst->data == NULL) {
+        return NGX_ERROR;
+    }
+
+    if (ngx_decode_base64(dst, src) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    if (destory && src->data != NULL) {
+        ngx_pfree(r->pool, src->data);
+        src->data = NULL;
+        src->len = 0;
+    }
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_http_waf_decode_url(ngx_http_request_t *r,
+    ngx_str_t *dst, ngx_str_t *src, ngx_uint_t destory)
+{
+    u_char     *d, *s, *p;
+
+    d = ngx_pnalloc(r->pool, src->len);
+    if (d == NULL) {
+        return NGX_ERROR;
+    }
+
+    s = src->data;
+    p = d;
+
+    ngx_http_waf_unescape_uri(&p, &s, src->len, 0);
+
+    dst->data = d;
+    dst->len  = p - d;
+
+    if (destory && src->data != NULL) {
+        ngx_pfree(r->pool, src->data);
+        src->data = NULL;
+        src->len = 0;
+    }
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
 ngx_http_waf_parse_rule_id(ngx_conf_t *cf, ngx_str_t *str,
     ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
 {
@@ -1950,15 +2167,82 @@ ngx_http_waf_parse_rule_id(ngx_conf_t *cf, ngx_str_t *str,
 
 
 static ngx_int_t
+ngx_http_waf_parse_rule_decode(ngx_conf_t *cf, ngx_array_t *decode_handlers,
+    u_char *p, u_char *e)
+{
+    ngx_uint_t                    i, offset, invalid;
+    ngx_str_t                     str, decode_prefix = ngx_string("decode_");
+    ngx_http_waf_rule_decode_pt  *decode;
+
+    str.data = p;
+    str.len = e - p;
+    offset = 0;
+
+    while (p < e) {
+        if (ngx_strncmp(p + offset, decode_prefix.data, decode_prefix.len) != 0)
+        {
+            return offset;
+        }
+
+        invalid = 0;
+        offset += decode_prefix.len;
+
+        for (i = 0; ngx_http_waf_rule_decode[i].handler != NULL; i++) {
+            invalid = 1;
+            if (ngx_strncmp(p + offset, ngx_http_waf_rule_decode[i].suffix.data,
+                ngx_http_waf_rule_decode[i].suffix.len) != 0)
+            {
+                continue;
+            }
+
+            decode = ngx_array_push(decode_handlers);
+            if (decode == NULL) {
+                return NGX_ERROR;
+            }
+
+            invalid = 0;
+            *decode = ngx_http_waf_rule_decode[i].handler;
+            offset += ngx_http_waf_rule_decode[i].suffix.len;
+
+            if (*(p + offset) != '|') {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                    "invalid decode format in arguments \"%V\"", str);
+                return NGX_ERROR;
+            }
+
+            offset += 1;
+            break;
+        }
+
+        if (invalid) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                "invalid decode function in arguments \"%V\"", str);
+            return NGX_ERROR;
+        }
+    }
+
+    return offset;
+}
+
+static ngx_int_t
 ngx_http_waf_parse_rule_str(ngx_conf_t *cf, ngx_str_t *str,
     ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
 {
-    u_char               *p, *e, errstr[NGX_MAX_CONF_ERRSTR];
-    ngx_regex_compile_t   rc;
+    u_char                       *p, *e, errstr[NGX_MAX_CONF_ERRSTR];
+    ngx_int_t                     offset;
+    ngx_regex_compile_t           rc;
 
 
     p = str->data + parser->prefix.len;
     e = str->data + str->len;
+
+    offset = ngx_http_waf_parse_rule_decode(cf, opt->p_rule->decode_handlers,
+        p, e - 3);
+    if (offset == NGX_ERROR) {
+        return NGX_ERROR;
+    }
+
+    p += offset;
 
     if (*p == '!') {
         p++;
@@ -2803,7 +3087,6 @@ ngx_http_waf_rule_hash_crc32_short_handler(ngx_http_waf_public_rule_t *pr,
     }
 
     hash = ngx_crc32_short(s->data, s->len);
-    fprintf(stderr, "=-==%d\n", hash);
 
     if (hash == ngx_atoi(pr->str.data, pr->str.len)) {
         return pr->not? NGX_ERROR: NGX_OK;
@@ -2838,6 +3121,10 @@ static void
 ngx_http_waf_rule_str_match(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
     ngx_http_waf_rule_t *rule, ngx_str_t *key, ngx_str_t *val)
 {
+    ngx_int_t                     rc;
+    ngx_uint_t                    i;
+    ngx_str_t                     src, dst;
+    ngx_http_waf_rule_decode_pt  *handlers;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
         "ngx http waf rule str match handler");
@@ -2850,7 +3137,22 @@ ngx_http_waf_rule_str_match(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
         ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
             "ngx http waf rule str match key:%V", key);
 
-        if (rule->p_rule->handler(rule->p_rule, key) == NGX_OK) {
+        src.data = key->data;
+        src.len  = key->len;
+        dst = src;
+
+        handlers = rule->p_rule->decode_handlers->elts;
+        for (i = 0; i < rule->p_rule->decode_handlers->nelts; i++) {
+            src = dst;
+            rc = handlers[i](r, &dst, &src, (i != 0));
+            if (rc != NGX_OK) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                    "ngx http waf decode error");
+                return;
+            }
+        }
+
+        if (rule->p_rule->handler(rule->p_rule, &dst) == NGX_OK) {
             ngx_http_waf_score_calc(r, ctx, rule, *key);
         }
     }
@@ -2863,7 +3165,22 @@ ngx_http_waf_rule_str_match(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
         ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
             "ngx http waf rule str match val:%V", val);
 
-        if (rule->p_rule->handler(rule->p_rule, val) == NGX_OK) {
+        src.data = val->data;
+        src.len  = val->len;
+        dst = src;
+
+        handlers = rule->p_rule->decode_handlers->elts;
+        for (i = 0; i < rule->p_rule->decode_handlers->nelts; i++) {
+            src = dst;
+            rc = handlers[i](r, &dst, &src, (i != 0));
+            if (rc != NGX_OK) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                    "ngx http waf decode error");
+                return;
+            }
+        }
+
+        if (rule->p_rule->handler(rule->p_rule, &dst) == NGX_OK) {
             ngx_http_waf_score_calc(r, ctx, rule, *val);
         }
     }
@@ -3071,7 +3388,7 @@ ngx_http_waf_score_args(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
         return;
     }
 
-#if 1
+#if 0
     u_char *dst, *src;
     src = r->args.data;
 
@@ -3134,7 +3451,7 @@ ngx_http_waf_score_args(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 
 
 done:
-#if 1
+#if 0
     ngx_pfree(r->pool, dst);
 #endif
 
