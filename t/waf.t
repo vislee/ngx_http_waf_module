@@ -67,6 +67,9 @@ http {
     security_rule id:1503 "hash:crc32@4160194954" "z:V_ARGS:testcrc32";
     security_rule id:1504 "hash:crc32_long@800313341" "z:V_ARGS:testcrc32_long";
 
+    security_rule id:1601 "str:decode_url|eq@xx&yy zz" "z:V_ARGS:testdecodeurl";
+    security_rule id:1602 "str:decode_base64|decode_url|eq@xx&yy zz" "z:V_ARGS:testdecodebase64url";
+
     security_rule id:2001 "str:eq@argskv" "z:ARGS";
     security_rule id:2002 "str:eq@argsonlyval" "z:#ARGS";
     security_rule id:2003 "str:eq@argsonlykey" "z:@ARGS";
@@ -164,7 +167,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(122);
+$t->try_run('no waf')->plan(126);
 
 ###############################################################################
 
@@ -286,6 +289,16 @@ like(http_get("/?testcrc32_long=testcrc32long"),
     qr/403 Forbidden/, 'waf_1504: test hash crc32_long block');
 like(http_get("/?testcrc32_long=testcrc32longxx"),
     qr/200 OK/, 'waf_1504: test hash crc32_long ok');
+
+like(http_get("/?testdecodeurl=xx%26yy+zz"),
+    qr/403 Forbidden/, 'waf_1601: test decode url block');
+like(http_get("/?testdecodeurl=xx%26yyzz"),
+    qr/200 OK/, 'waf_1601: test decode url ok');
+
+like(http_get("/?testdecodebase64url=eHglMjZ5eSt6eg=="),
+    qr/403 Forbidden/, 'waf_1602: test decode base64 and url block');
+like(http_get("/?testdecodebase64url=eHglMjZ5eSt6e=="),
+    qr/200 OK/, 'waf_1602: test decode base64 and url ok');
 
 like(http_get("/?testnotle=d"),
     qr/200 OK/, 'waf_1118: test notlt ok');
