@@ -1,7 +1,7 @@
 Name
 =====
 
-**ngx_http_waf_module** 是一个开源的、高效的、规则可配的nginx WAF模块。
+**ngx_http_waf_module** 是一个开源的、高效的、规则简单可配置、策略易扩展的nginx WAF模块。
 
 
 Table of Contents
@@ -95,8 +95,8 @@ security_rule
 配置一条通用的规则，对该`http`下的所有`location`均可见。
 规则的格式: `id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
 
-+ id: number取值为数字，规则的唯一编码，仅代表一条规则。在`白名单`和`日志`记录中使用。
-+ strategy: 规则策略，有以下几种策略，其中以`str:`开始的是字符串匹配策略。以`libinj:`开始的是调用了第三方libinjection库的策略。以`hash:`开始的是hash值策略。以`libmagic:`开始的是调用了libmagic库通过检测文件魔数获取文件类型。
++ id: number取值为数字，规则的唯一编码，唯一代表一条规则。在`白名单`和`日志`记录中使用。
++ strategy: 规则策略，有以下几种策略。以`str:`开始的是字符串匹配策略。以`libinj:`开始的是调用了第三方libinjection库的策略。以`hash:`开始的是计算hash值的策略。以`libmagic:`开始的是调用了libmagic库通过检测文件魔数获取文件类型。
 
   + "str:[decode_func1|decode_func2][!]le@string": [经过decode函数处理后的]字符串[不]小于等于string(字典顺序)
   + "str:[decode_func1|decode_func2][!]ge@string": [经过decode函数处理后的]字符串[不]大于等于string(字典顺序)
@@ -113,6 +113,7 @@ security_rule
   + "libmagic:[!]mime_type@type": 内容的魔数识别[不]等于type
 
 >>**decode_func**: 支持`decode_url`和`decode_base64`函数。通过管道符号(`|`)支持多次decode操作。
+
 >>**!**: 取反。
 
 + "s:$TAG:score,$TAG2:score": 规则标签打分，通过该配置多条规则可以加权作用。如果不配置，命中该规则请求被BLOCK。
@@ -145,11 +146,11 @@ URL参数foo的value如果先base64解码然后再URL解码的结果不等于"fo
 
 security_loc_rule
 -----------------
-**syntax** *security_loc_rule rule*
+**语法** *security_loc_rule rule*
 
-**default:** *no*
+**默认:** *no*
 
-**context:** *location*
+**环境:** *location*
 
 配置仅对当前`location`可见的规则。
 配置屏蔽全局规则的白名单。
@@ -158,11 +159,11 @@ security_loc_rule
 
 security_waf
 ------------
-**syntax** *security_waf <on|off>*
+**语法** *security_waf <on|off>*
 
-**default:** *off*
+**默认:** *off*
 
-**context:** *location*
+**环境:** *location*
 
 在对应的`location`开启规则检测。
 
@@ -171,11 +172,11 @@ security_waf
 
 security_check
 --------------
-**syntax** *security_check $tag>threshold <LOG|BLOCK|DROP|$variable>*
+**语法** *security_check $tag>threshold <LOG|BLOCK|DROP|$variable>*
 
-**default:** *no*
+**默认:** *no*
 
-**context:** *location*
+**环境:** *location*
 
 设置规则打分的阈值和对应的动作。
 
@@ -192,11 +193,11 @@ $variable: 满足条件该变量的值为"block"，和map指令配合使用。
 
 security_log
 ------------
-**syntax** *security_log <logfile|off>*
+**语法** *security_log <logfile|off>*
 
-**default:** *off*
+**默认:** *off*
 
-**context:** *location*
+**环境:** *location*
 
 以json格式记录命中的规则和请求。
 
@@ -205,6 +206,8 @@ security_log
 
 New strategy
 ===========
+
+如果现有策略不满足需求，新的策略扩展也是非常容易的。仅需要开发两个函数，注册到模块中就可以了。例如调用了libinjection这个库扩展sql注入检测。
 
 [Back to TOC](#table-of-contents)
 
