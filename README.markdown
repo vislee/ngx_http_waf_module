@@ -4,6 +4,187 @@ Name
 [![travis-ci](https://travis-ci.org/vislee/ngx_http_waf_module.svg?branch=master)](https://travis-ci.org/vislee/ngx_http_waf_module)
 [![Coverage Status](https://coveralls.io/repos/github/vislee/ngx_http_waf_module/badge.svg?branch=master)](https://coveralls.io/github/vislee/ngx_http_waf_module?branch=master)
 
+The **ngx_http_waf_module** is an open source and high performance web application firewall(WAF) module for Nginx.
+
+This module must be configured with rules.
+
+Table of Contents
+=================
+* [Name](#name)
+* [Install](#install)
+* [Example Configuration](#example-configuration)
+* [Directives](#directives)
+    * [security_rule](#security_rule)
+    * [security_loc_rule](#security_loc_rule)
+    * [security_waf](#security_waf)
+    * [security_check](#security_check)
+    * [security_log](#security_log)
+* [Author](#author)
+* [Copyright and License](#copyright-and-license)
+* [See Also](#see-also)
+
+
+Install
+=======
+
+```sh
+./configure --prefix=/usr/local/nginx --add-dynamic-module=github.com/vislee/ngx_http_waf_module --with-compat
+```
+
+[Back to TOC](#table-of-contents)
+
+Example Configuration
+====================
+
+```nginx
+
+load_module ./modules/ngx_http_waf_module.so;
+events {
+    ......
+}
+
+http {
+   ......
+    security_rule id:1001 "str:rx@^[a-z]{1,3}" "s:$BYPASS:1,$SQLI:2" z:V_HEADERS:bar|ARGS;
+    security_rule id:1002 "str:!sw@/test.php" s:$XSS:3,$BYPASS:3 z:#URL;
+    security_rule id:1003 "libinj:sql" "s:$SQLI:9" z:V_ARGS:foo;
+    security_rule id:1004 "libinj:decode_url|xss" "s:$XSS:9" z:V_ARGS:foo "note:test rule by vislee";
+    security_rule id:1005 "str:eq@testbody" "s:$BYPASS:2" "z:BODY";
+    security_rule id:1006 "str:decode_base64|decode_url|ct@test file data" "s:$BYPASS:2" "z:V_BODY:input";
+    security_rule id:1007 "str:ct@eval" "s:$HANG:2" "z:#FILE";
+    security_rule id:1008 "str:ct@testphp" "s:$HANG:2" "z:X_FILE:^[a-z]{1,5}\.php$";
+    security_rule id:1009 "str:ct@testphp" "s:$BYPASS:2" "z:#RAW_BODY";
+
+    map $sec_result $ups {
+        "block" block;
+        default runtime;
+    }
+
+    server {
+        location / {
+            client_body_buffer_size 1m;
+
+            security_waf on;
+            security_log ./logs/waf.log;
+
+            security_rule w:1003 z:V_ARGS:test;
+            security_rule 90001 str:eq@vislee s:$BYPASS:4 z:V_HEADERS:name;
+
+            security_check "$HANG>4" LOG;
+            security_check "$BYPASS>8" $sec_result;
+            security_check "$SQLI>8" DROP;
+            security_check "$XSS>8" BLOCK;
+
+            proxy_pass http://$ups;
+        }
+    }
+
+```
+
+[Back to TOC](#table-of-contents)
+
+
+Directives
+==========
+
+security_rule
+-------------
+**syntax** *security_rule rule*
+
+**default:** *no*
+
+**context:** *http*
+
+rule format: id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";
+
++ strategy:
+  + str:[decode_func1|decode_func2][!]le@string
+  + str:[decode_func1|decode_func2][!]ge@string
+  + str:[decode_func1|decode_func2][!]ct@string
+  + str:[decode_func1|decode_func2][!]eq@string
+  + str:[decode_func1|decode_func2][!]sw@string
+  + str:[decode_func1|decode_func2][!]ew@string
+  + str:[decode_func1|decode_func2][!]rx@regex
+  + libinj:[decode_func1|decode_func2][!]sql
+  + libinj:[decode_func1|decode_func2][!]xss
+  + hash:[!]md5@hashcode
+  + hash:[!]crc32@hashcode
+  + hash:[!]crc32_long@hashcode
+  + libmagic:mime_type@mime_type
+
+>>decode_func: decode_url or decode_base64
+
++ zones:
+  + #URL
+  + V_URL:string
+  + X_URL:regex
+  + [@ | #]ARGS
+  + V_ARGS:string
+  + X_ARGS:regex
+  + [@ | #]HEADERS
+  + V_HEADERS:string
+  + X_HEADERS:regex
+  + #RAW_BODY
+  + [@ | #]BODY
+  + V_BODY:string
+  + X_BODY:regex
+  + #FILE
+  + X_FILE:regex
+
+
+[Back to TOC](#table-of-contents)
+
+security_loc_rule
+-----------------
+**syntax** *security_loc_rule rule*
+
+**default:** *no*
+
+**context:** *location*
+
+[Back to TOC](#table-of-contents)
+
+security_waf
+------------
+**syntax** *security_waf <on|off>*
+
+**default:** *off*
+
+**context:** *location*
+
+Enables or disables this module.
+
+[Back to TOC](#table-of-contents)
+
+
+security_check
+--------------
+**syntax** *security_check $tag>threshold <LOG|BLOCK|DROP|$variable>*
+
+**default:** *no*
+
+**context:** *location*
+
+[Back to TOC](#table-of-contents)
+
+security_log
+------------
+**syntax** *security_log <logfile|off>*
+
+**default:** *off*
+
+**context:** *location*
+
+[Back to TOC](#table-of-contents)
+
+
+
+Author
+======
+
+wenqiang li(vislee)
+
+[Back to TOC](#table-of-contents)
 
 Copyright and License
 =====================
@@ -13,3 +194,13 @@ This module is licensed under the GPL license.
 Copyright (C) 2018, by vislee.
 
 All rights reserved.
+
+
+[Back to TOC](#table-of-contents)
+
+
+See Also
+========
+
+[Back to TOC](#table-of-contents)
+
