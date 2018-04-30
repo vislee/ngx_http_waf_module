@@ -2576,7 +2576,7 @@ ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
     static ngx_str_t    sql = ngx_string("sql");
     static ngx_str_t    xss = ngx_string("xss");
 
-    if (str->len - parser->prefix.len != 3) {
+    if (str->len - parser->prefix.len < 3) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
             "invalid libinj in arguments \"%V\"", str);
         return NGX_ERROR;
@@ -2593,11 +2593,15 @@ ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
 
     p += offset;
 
-    if (ngx_strncmp(p, sql.data, sql.len) == 0) {
+    if ((size_t)(e - p) == sql.len
+        && ngx_strncmp(p, sql.data, sql.len) == 0)
+    {
         opt->p_rule->str = sql;
         opt->p_rule->handler = ngx_http_waf_rule_str_sqli_handler;
 
-    } else if (ngx_strncmp(p, xss.data, xss.len) == 0) {
+    } else if ((size_t)(e - p) == xss.len
+        && ngx_strncmp(p, xss.data, xss.len) == 0)
+    {
         opt->p_rule->str = xss;
         opt->p_rule->handler = ngx_http_waf_rule_str_xss_handler;
 
