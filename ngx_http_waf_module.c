@@ -4166,8 +4166,8 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
         "ngx waf log handler");
 
-    len = 4096;
-    ngx_memzero(line, 4096);
+    len = sizeof(line);
+    ngx_memzero(line, len);
     buf = line;
 
     p = ngx_snprintf(buf, len, "{\"timestamp\": \"%T\", \"remote_ip\": \"%V\", "
