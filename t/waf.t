@@ -73,6 +73,7 @@ http {
     security_rule id:1604 "str:decode_url|decode_url|ct@xx&yy ZZ" "z:V_ARGS:testdecodeurlurl";
     security_rule id:1605 "libinj:decode_base64|xss" "z:V_ARGS:testdecodebase64xss";
     security_rule id:1606 "libinj:decode_base64|decode_url|xss" "z:V_ARGS:testdecodebase64urlxss";
+    security_rule id:1607 "libinj:decode_url|decode_url|xss" "z:V_ARGS:testdecodeurlurlxss";
 
     security_rule id:2001 "str:eq@argskv" "z:ARGS";
     security_rule id:2002 "str:eq@argsonlyval" "z:#ARGS";
@@ -171,7 +172,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(134);
+$t->try_run('no waf')->plan(136);
 
 ###############################################################################
 
@@ -320,9 +321,14 @@ like(http_get("/?testdecodebase64xss=xxNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="),
     qr/200 OK/, 'waf_1605: test decode base64 xss ok');
 
 like(http_get("/?testdecodebase64urlxss=JTNDc2NyaXB0JTNFYWxlcnQoMSkrJTNDL3NjcmlwdCUzRQ=="),
-    qr/403 Forbidden/, 'waf_1606: test decode base64 xss block');
+    qr/403 Forbidden/, 'waf_1606: test decode base64 url xss block');
 like(http_get("/?testdecodebase64urlxss=XXNDc2NyaXB0JTNFYWxlcnQoMSkrJTNDL3NjcmlwdCUzRQ=="),
-    qr/200 OK/, 'waf_1606: test decode base64 xss ok');
+    qr/200 OK/, 'waf_1606: test decode base64 url xss ok');
+
+like(http_get("/?testdecodeurlurlxss=%253Cimg%2520src=1%2520onerror=alert(1)%253E"),
+    qr/403 Forbidden/, 'waf_1607: test decode url url xss block');
+like(http_get("/?testdecodeurlurlxss=%253Cimg%2520src=%2520onerror%253E"),
+    qr/200 OK/, 'waf_1607: test decode url url xss ok');
 
 like(http_get("/?testnotle=d"),
     qr/200 OK/, 'waf_1118: test notlt ok');
