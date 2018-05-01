@@ -116,8 +116,8 @@ The rule format:
   + str:[decode_func1|decode_func2|][!]sw@string
   + str:[decode_func1|decode_func2|][!]ew@string
   + str:[decode_func1|decode_func2|][!]rx@regex
-  + libinj:[decode_func1|decode_func2|][!]sql
-  + libinj:[decode_func1|decode_func2|][!]xss
+  + libinj:[decode_func1|decode_func2|]sql
+  + libinj:[decode_func1|decode_func2|]xss
   + hash:[!]md5@hashcode
   + hash:[!]crc32@hashcode
   + hash:[!]crc32_long@hashcode
