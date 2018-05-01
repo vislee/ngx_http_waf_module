@@ -4,7 +4,7 @@ Name
 [![travis-ci](https://travis-ci.org/vislee/ngx_http_waf_module.svg?branch=master)](https://travis-ci.org/vislee/ngx_http_waf_module)
 [![Coverage Status](https://coveralls.io/repos/github/vislee/ngx_http_waf_module/badge.svg?branch=master)](https://coveralls.io/github/vislee/ngx_http_waf_module?branch=master)
 
-The **ngx_http_waf_module** is an open-source and high-performance simple-rule easy-extend web application firewall(WAF) module for Nginx.
+The **ngx_http_waf_module** is an open-source high-performance simple-rule easy-extend web application firewall(WAF) module for Nginx.
 
 
 Table of Contents
@@ -19,7 +19,7 @@ Table of Contents
     * [security_waf](#security_waf)
     * [security_check](#security_check)
     * [security_log](#security_log)
-* [New strategy](#new-strategy)
+* [New match-strategy](#new-matching-strategy)
 * [Author](#author)
 * [Copyright and License](#copyright-and-license)
 * [See Also](#see-also)
@@ -95,26 +95,29 @@ Directives
 
 security_rule
 -------------
-**syntax** *security_rule rule*
+**syntax:** *security_rule rule*
 
 **default:** *no*
 
 **context:** *http*
 
 Set the general rules. All of `http` containing `location` is visible.
-The rule format: `security_rule id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
+
+The rule format:
+
+ `security_rule id:number match-strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
 
 + id: the rules of the ID.
-+ strategy: the rules of strategy.
-  + str:[decode_func1|decode_func2][!]le@string
-  + str:[decode_func1|decode_func2][!]ge@string
-  + str:[decode_func1|decode_func2][!]ct@string
-  + str:[decode_func1|decode_func2][!]eq@string
-  + str:[decode_func1|decode_func2][!]sw@string
-  + str:[decode_func1|decode_func2][!]ew@string
-  + str:[decode_func1|decode_func2][!]rx@regex
-  + libinj:[decode_func1|decode_func2][!]sql
-  + libinj:[decode_func1|decode_func2][!]xss
++ match-strategy: the rules of strategy.
+  + str:[decode_func1|decode_func2|][!]le@string
+  + str:[decode_func1|decode_func2|][!]ge@string
+  + str:[decode_func1|decode_func2|][!]ct@string
+  + str:[decode_func1|decode_func2|][!]eq@string
+  + str:[decode_func1|decode_func2|][!]sw@string
+  + str:[decode_func1|decode_func2|][!]ew@string
+  + str:[decode_func1|decode_func2|][!]rx@regex
+  + libinj:[decode_func1|decode_func2|][!]sql
+  + libinj:[decode_func1|decode_func2|][!]xss
   + hash:[!]md5@hashcode
   + hash:[!]crc32@hashcode
   + hash:[!]crc32_long@hashcode
@@ -151,7 +154,7 @@ security_rule id:100 "str:decode_base64|decode_url|!eq@foo bar" "s:$ATT:2,$SQLI:
 
 security_loc_rule
 -----------------
-**syntax** *security_loc_rule rule*
+**syntax:** *security_loc_rule rule*
 
 **default:** *no*
 
@@ -159,7 +162,7 @@ security_loc_rule
 
 Set the location rules.
 
-You can set the screen whitelist of general rule.
+You can set the whitelist disable of the general rules of the specified ids.
 The whitelist rule format: `security_loc_rule "wl:id1,id2" "z:zones" "note:test whitelist";`
 
 
@@ -167,7 +170,7 @@ The whitelist rule format: `security_loc_rule "wl:id1,id2" "z:zones" "note:test 
 
 security_waf
 ------------
-**syntax** *security_waf <on|off>*
+**syntax:** *security_waf <on|off>*
 
 **default:** *off*
 
@@ -180,7 +183,7 @@ Enables or disables this module.
 
 security_check
 --------------
-**syntax** *security_check $tag>threshold <LOG|BLOCK|DROP|ALLOW|$variable>*
+**syntax:** *security_check $tag>threshold <LOG|BLOCK|DROP|ALLOW|$variable>*
 
 **default:** *no*
 
@@ -188,11 +191,19 @@ security_check
 
 Set rule score threshold and action.
 
+The action include:
+
+  + LOG: only logged.
+  + BLOCK: refuse the request, return 403.
+  + DROP: close the connection, Is equivalent to return 444.
+  + ALLOW: skip the rest of the rules.
+  + $variable: return string "block" else return nil.
+
 [Back to TOC](#table-of-contents)
 
 security_log
 ------------
-**syntax** *security_log <logfile|off>*
+**syntax:** *security_log <logfile|off>*
 
 **default:** *off*
 
@@ -201,7 +212,7 @@ security_log
 [Back to TOC](#table-of-contents)
 
 
-New strategy
+New match-strategy
 ===========
 
 [Back to TOC](#table-of-contents)
@@ -232,7 +243,7 @@ See Also
 
 + nginx: ngx_http_waf_module based on nginx.
 + naxsi: ngx_http_waf_module has learned a lot of from it.
-+ libinjection: ngx_http_waf_module refer to this library.
++ [libinjection](https://github.com/client9/libinjection): ngx_http_waf_module refer to this library.
 + libmagic: ngx_http_waf_module refer to this library.
 
 [Back to TOC](#table-of-contents)
