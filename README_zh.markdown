@@ -73,8 +73,8 @@ http {
             security_waf on;
             security_log ./logs/waf.log;
 
-            security_rule wl:1003 z:V_ARGS:test;
-            security_rule id:90001 str:eq@vislee s:$BYPASS:4 z:V_HEADERS:name;
+            security_loc_rule wl:1003 z:V_ARGS:test;
+            security_loc_rule id:90001 str:eq@vislee s:$BYPASS:4 z:V_HEADERS:name;
 
             security_check "$HANG>4" LOG;
             security_check "$BYPASS>8" $sec_result;
@@ -102,7 +102,7 @@ security_rule
 **环境:** *http*
 
 配置一条通用的规则，对该`http`下的所有`location`均可见。
-规则的格式: `id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
+规则的格式: `security_rule id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
 
 + id: number取值为数字，规则的唯一编码，唯一代表一条规则。在`白名单`和`日志`记录中使用。
 + strategy: 规则策略，有以下几种策略。
@@ -149,7 +149,9 @@ security_rule
   + "z:X_FILE:regex": 检测表单上传文件名满足正则表达式的内容。
 
 例如：
-`security_rule id:100 "str:decode_base64|decode_url|!eq@foo bar" "s:$ATT:2,$SQLI:1" "z:V_ARGS:foo|#HEADERS" "note:test rule";`
+```nginx
+security_rule id:100 "str:decode_base64|decode_url|!eq@foo bar" "s:$ATT:2,$SQLI:1" "z:V_ARGS:foo|#HEADERS" "note:test rule";
+```
 
 一个请求的
 URL参数foo的value如果先base64解码然后再URL解码的结果不等于"foo bar"，则会对`$ATT` 这个变量累加2分，对`$SQLI`这个变量累加1分。
@@ -166,7 +168,9 @@ security_loc_rule
 **环境:** *location*
 
 配置仅对当前`location`可见的规则。
-配置屏蔽全局规则的白名单。
+
+也可以配置屏蔽全局规则的白名单。
+白名单的格式：`security_loc_rule "wl:id1,id2" "z:zones" "note:test whitelist";`
 
 [Back to TOC](#table-of-contents)
 
@@ -236,13 +240,12 @@ wenqiang li(vislee)
 Copyright and License
 =====================
 
-This module is licensed under the GPL license.
+This module is licensed under the [GPL](http://www.gnu.org/licenses/licenses.zh-cn.html
+) license.
 
 Copyright (C) 2018, by vislee.
 
 All rights reserved.
-
-http://www.gnu.org/licenses/licenses.zh-cn.html
 
 [Back to TOC](#table-of-contents)
 

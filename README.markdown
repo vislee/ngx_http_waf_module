@@ -73,8 +73,8 @@ http {
             security_waf on;
             security_log ./logs/waf.log;
 
-            security_rule wl:1003 z:V_ARGS:test;
-            security_rule id:90001 str:eq@vislee s:$BYPASS:4 z:V_HEADERS:name;
+            security_loc_rule wl:1003 z:V_ARGS:test;
+            security_loc_rule id:90001 str:eq@vislee s:$BYPASS:4 z:V_HEADERS:name;
 
             security_check "$HANG>4" LOG;
             security_check "$BYPASS>8" $sec_result;
@@ -102,7 +102,7 @@ security_rule
 **context:** *http*
 
 Set the general rules. All of `http` containing `location` is visible.
-The rule format: `id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
+The rule format: `security_rule id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
 
 + id: the rules of the ID.
 + strategy: the rules of strategy.
@@ -122,6 +122,8 @@ The rule format: `id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:
 
 >>decode_func: decode_url or decode_base64
 
+>>!: not. eg: "!eq@test" - Is not equal to 'test'. 
+
 + zones: the match zone.
   + #URL
   + V_URL:string
@@ -139,6 +141,11 @@ The rule format: `id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:
   + #FILE
   + X_FILE:regex
 
+eg:
+```nginx
+security_rule id:100 "str:decode_base64|decode_url|!eq@foo bar" "s:$ATT:2,$SQLI:1" "z:V_ARGS:foo|#HEADERS" "note:test rule";
+```
+
 
 [Back to TOC](#table-of-contents)
 
@@ -149,6 +156,12 @@ security_loc_rule
 **default:** *no*
 
 **context:** *location*
+
+Set the location rules.
+
+You can set the screen whitelist of general rule.
+The whitelist rule format: `security_loc_rule "wl:id1,id2" "z:zones" "note:test whitelist";`
+
 
 [Back to TOC](#table-of-contents)
 
@@ -172,6 +185,8 @@ security_check
 **default:** *no*
 
 **context:** *location*
+
+Set rule score threshold and action.
 
 [Back to TOC](#table-of-contents)
 
