@@ -1,12 +1,16 @@
 Name
 =====
 
+[![travis-ci](https://travis-ci.org/vislee/ngx_http_waf_module.svg?branch=master)](https://travis-ci.org/vislee/ngx_http_waf_module)
+[![Coverage Status](https://coveralls.io/repos/github/vislee/ngx_http_waf_module/badge.svg?branch=master)](https://coveralls.io/github/vislee/ngx_http_waf_module?branch=master)
+
 **ngx_http_waf_module** 是一个开源的、高效的、规则简单可配置、策略易扩展的nginx WAF模块。
 
 
 Table of Contents
 =================
 * [Name](#name)
+* [Status](#status)
 * [Install](#install)
 * [Example Configuration](#example-configuration)
 * [Directives](#directives)
@@ -19,6 +23,11 @@ Table of Contents
 * [Author](#author)
 * [Copyright and License](#copyright-and-license)
 * [See Also](#see-also)
+
+Status
+======
+ngx_http_waf_module 还处在早期的开发阶段。
+
 
 Install
 =======
@@ -96,7 +105,7 @@ security_rule
 规则的格式: `id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
 
 + id: number取值为数字，规则的唯一编码，唯一代表一条规则。在`白名单`和`日志`记录中使用。
-+ strategy: 规则策略，有以下几种策略。以`str:`开始的是字符串匹配策略。以`libinj:`开始的是调用了第三方libinjection库的策略。以`hash:`开始的是计算hash值的策略。以`libmagic:`开始的是调用了libmagic库通过检测文件魔数获取文件类型。
++ strategy: 规则策略，有以下几种策略。以`str:`开始的是字符串匹配策略。以`libinj:`开始的是调用了第三方(libinjection)[https://github.com/client9/libinjection]库的策略。以`hash:`开始的是计算hash值的策略。以`libmagic:`开始的是调用了libmagic库通过检测文件魔数获取文件类型。
 
   + "str:[decode_func1|decode_func2][!]le@string": [经过decode函数处理后的]字符串[不]小于等于string(字典顺序)
   + "str:[decode_func1|decode_func2][!]ge@string": [经过decode函数处理后的]字符串[不]大于等于string(字典顺序)
@@ -106,7 +115,7 @@ security_rule
   + "str:[decode_func1|decode_func2][!]ew@string": [经过decode函数处理后的]字符串[不是]以string结束
   + "str:[decode_func1|decode_func2][!]rx@regex": [经过decode函数处理后的]字符串[不]符合正则表达式
   + "libinj:[decode_func1|decode_func2][!]sql": [经过decode函数处理后的]字符串[不]存在sql注入
-  + "libinj:[decode_func1|decode_func2][!]xss": [经过decode函数处理后的]字符串[不]存在跨站脚本攻击
+  + "libinj:[decode_func1|decode_func2][!]xss": [经过decode函数处理后的]字符串[不]存在xss攻击
   + "hash:[!]md5@hashcode": 字符串的md5值[不]等于hashcode
   + "hash:[!]crc32@hashcode": 字符串的crc32[不]等于hashcode
   + "hash:[!]crc32_long@hashcode": 字符串的crc32_long[不]等于hashcode
@@ -228,6 +237,7 @@ Copyright (C) 2018, by vislee.
 
 All rights reserved.
 
+http://www.gnu.org/licenses/licenses.zh-cn.html
 
 [Back to TOC](#table-of-contents)
 

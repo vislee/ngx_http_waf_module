@@ -4,13 +4,13 @@ Name
 [![travis-ci](https://travis-ci.org/vislee/ngx_http_waf_module.svg?branch=master)](https://travis-ci.org/vislee/ngx_http_waf_module)
 [![Coverage Status](https://coveralls.io/repos/github/vislee/ngx_http_waf_module/badge.svg?branch=master)](https://coveralls.io/github/vislee/ngx_http_waf_module?branch=master)
 
-The **ngx_http_waf_module** is an open source and high performance web application firewall(WAF) module for Nginx.
+The **ngx_http_waf_module** is an open-source and high-performance simple-rule easy-extend web application firewall(WAF) module for Nginx.
 
-This module must be configured with rules.
 
 Table of Contents
 =================
 * [Name](#name)
+* [Status](#status)
 * [Install](#install)
 * [Example Configuration](#example-configuration)
 * [Directives](#directives)
@@ -19,9 +19,15 @@ Table of Contents
     * [security_waf](#security_waf)
     * [security_check](#security_check)
     * [security_log](#security_log)
+* [New strategy](#new-strategy)
 * [Author](#author)
 * [Copyright and License](#copyright-and-license)
 * [See Also](#see-also)
+
+
+Status
+======
+The ngx_http_waf_module is currently in active development.
 
 
 Install
@@ -67,8 +73,8 @@ http {
             security_waf on;
             security_log ./logs/waf.log;
 
-            security_rule w:1003 z:V_ARGS:test;
-            security_rule 90001 str:eq@vislee s:$BYPASS:4 z:V_HEADERS:name;
+            security_rule wl:1003 z:V_ARGS:test;
+            security_rule id:90001 str:eq@vislee s:$BYPASS:4 z:V_HEADERS:name;
 
             security_check "$HANG>4" LOG;
             security_check "$BYPASS>8" $sec_result;
@@ -95,9 +101,11 @@ security_rule
 
 **context:** *http*
 
-rule format: id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";
+Set the general rules. All of `http` containing `location` is visible.
+The rule format: `id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
 
-+ strategy:
++ id: the rules of the ID.
++ strategy: the rules of strategy.
   + str:[decode_func1|decode_func2][!]le@string
   + str:[decode_func1|decode_func2][!]ge@string
   + str:[decode_func1|decode_func2][!]ct@string
@@ -114,7 +122,7 @@ rule format: id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:messa
 
 >>decode_func: decode_url or decode_base64
 
-+ zones:
++ zones: the match zone.
   + #URL
   + V_URL:string
   + X_URL:regex
@@ -178,6 +186,11 @@ security_log
 [Back to TOC](#table-of-contents)
 
 
+New strategy
+===========
+
+[Back to TOC](#table-of-contents)
+
 
 Author
 ======
@@ -194,6 +207,8 @@ This module is licensed under the GPL license.
 Copyright (C) 2018, by vislee.
 
 All rights reserved.
+
+http://www.gnu.org/licenses/licenses.en.html
 
 
 [Back to TOC](#table-of-contents)
