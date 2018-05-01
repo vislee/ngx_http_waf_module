@@ -215,5 +215,10 @@ All rights reserved.
 See Also
 ========
 
++ nginx: ngx_http_waf_module based on nginx.
++ naxsi: ngx_http_waf_module has learned a lot of from it.
++ libinjection: ngx_http_waf_module refer to this library.
++ libmagic: ngx_http_waf_module refer to this library.
+
 [Back to TOC](#table-of-contents)
 
