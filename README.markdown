@@ -167,7 +167,7 @@ Enables or disables this module.
 
 security_check
 --------------
-**syntax** *security_check $tag>threshold <LOG|BLOCK|DROP|$variable>*
+**syntax** *security_check $tag>threshold <LOG|BLOCK|DROP|ALLOW|$variable>*
 
 **default:** *no*
 
@@ -202,13 +202,11 @@ wenqiang li(vislee)
 Copyright and License
 =====================
 
-This module is licensed under the GPL license.
+This module is licensed under the [GPL](http://www.gnu.org/licenses/licenses.en.html) license.
 
 Copyright (C) 2018, by vislee.
 
 All rights reserved.
-
-http://www.gnu.org/licenses/licenses.en.html
 
 
 [Back to TOC](#table-of-contents)

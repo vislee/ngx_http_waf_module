@@ -185,7 +185,7 @@ security_waf
 
 security_check
 --------------
-**语法** *security_check $tag>threshold <LOG|BLOCK|DROP|$variable>*
+**语法** *security_check $tag>threshold <LOG|BLOCK|DROP|ALLOW|$variable>*
 
 **默认:** *no*
 
@@ -197,6 +197,7 @@ security_check
 LOG: 仅记录一条日志。
 BLOCK: 拒绝请求，返回403.
 DROP: 关闭连接。
+ALLOW: 允许通过。
 $variable: 满足条件该变量的值为"block"，和map指令配合使用。
 
 例如： 
