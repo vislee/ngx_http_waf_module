@@ -19,7 +19,7 @@ Table of Contents
     * [security_waf](#security_waf)
     * [security_check](#security_check)
     * [security_log](#security_log)
-* [New match strategy](#new-matching-strategy)
+* [New match strategy](#new-match-strategy)
 * [Author](#author)
 * [Copyright and License](#copyright-and-license)
 * [See Also](#see-also)
@@ -209,17 +209,18 @@ security_log
 
 **context:** *location*
 
+The matching rules of logs.
+
 [Back to TOC](#table-of-contents)
 
 
 New match strategy
 ===========
 
-If you want to expand `match-strategy`. Only need to define two function.
-
+If you want to expand `match-strategy`. Only need to implement two function:
 The function of parse directive and The matching-strategy callback function.
 
-And then the parse function registered into the array of ngx_http_waf_rule_parser_item. 
+And then the parse directive function registered into the array of `ngx_http_waf_rule_parser_item`. 
 
 For example, the `libinj:xss` and `libinj:sql` expand.
 
