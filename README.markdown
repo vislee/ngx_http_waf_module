@@ -19,7 +19,7 @@ Table of Contents
     * [security_waf](#security_waf)
     * [security_check](#security_check)
     * [security_log](#security_log)
-* [New match-strategy](#new-matching-strategy)
+* [New match strategy](#new-matching-strategy)
 * [Author](#author)
 * [Copyright and License](#copyright-and-license)
 * [See Also](#see-also)
@@ -212,8 +212,95 @@ security_log
 [Back to TOC](#table-of-contents)
 
 
-New match-strategy
+New match strategy
 ===========
+
+If you want to expand `match-strategy`. Only need to define two function.
+
+The function of parse directive and The matching-strategy callback function.
+
+And then the parse function registered into the array of ngx_http_waf_rule_parser_item. 
+
+For example, the `libinj:xss` and `libinj:sql` expand.
+
+```c
+// The parse directive function
+static ngx_int_t
+ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
+    ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
+{
+    u_char             *p, *e;
+    ngx_int_t           offset;
+
+    static ngx_str_t    sql = ngx_string("sql");
+    static ngx_str_t    xss = ngx_string("xss");
+
+    if (str->len - parser->prefix.len < 3) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+            "invalid libinj in arguments \"%V\"", str);
+        return NGX_ERROR;
+    }
+
+    p = str->data + parser->prefix.len;
+    e = str->data + str->len;
+
+    offset = ngx_http_waf_parse_rule_decode(cf, opt->p_rule->decode_handlers,
+        p, e - 4);
+    if (offset == NGX_ERROR) {
+        return NGX_ERROR;
+    }
+
+    p += offset;
+
+    if ((size_t)(e - p) == sql.len
+        && ngx_strncmp(p, sql.data, sql.len) == 0)
+    {
+        opt->p_rule->str = sql;
+        opt->p_rule->handler = ngx_http_waf_rule_str_sqli_handler;
+
+    } else if ((size_t)(e - p) == xss.len
+        && ngx_strncmp(p, xss.data, xss.len) == 0)
+    {
+        opt->p_rule->str = xss;
+        opt->p_rule->handler = ngx_http_waf_rule_str_xss_handler;
+
+    } else {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+            "invalid libinj args in arguments \"%V\"", str);
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+// matching-strategy callback function
+static ngx_int_t
+ngx_http_waf_rule_str_sqli_handler(ngx_http_waf_public_rule_t *pr,
+    ngx_str_t *s)
+{
+    ngx_int_t                       issqli;
+    struct libinjection_sqli_state  state;
+
+    if (s == NULL || s->data == NULL || s->len == 0) {
+        return NGX_ERROR;
+    }
+
+    libinjection_sqli_init(&state, (const char *)s->data, s->len, FLAG_NONE);
+    issqli = libinjection_is_sqli(&state);
+    if (!issqli) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+// registered parse directive function
+static ngx_http_waf_rule_parser_t  ngx_http_waf_rule_parser_item[] = {
+    ......
+    {ngx_string("libinj:"),    ngx_http_waf_parse_rule_libinj},
+    ......
+  }
+```
 
 [Back to TOC](#table-of-contents)
 
