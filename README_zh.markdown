@@ -105,7 +105,11 @@ security_rule
 规则的格式: `id:number strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
 
 + id: number取值为数字，规则的唯一编码，唯一代表一条规则。在`白名单`和`日志`记录中使用。
-+ strategy: 规则策略，有以下几种策略。以`str:`开始的是字符串匹配策略。以`libinj:`开始的是调用了第三方(libinjection)[https://github.com/client9/libinjection]库的策略。以`hash:`开始的是计算hash值的策略。以`libmagic:`开始的是调用了libmagic库通过检测文件魔数获取文件类型。
++ strategy: 规则策略，有以下几种策略。
+  以`str:`开始的是字符串匹配策略。
+  以`libinj:`开始的是调用了第三方 (libinjection)[https://github.com/client9/libinjection] 库的策略。
+  以`hash:`开始的是计算hash值的策略。
+  以`libmagic:`开始的是调用了libmagic库通过检测文件魔数获取文件类型。
 
   + "str:[decode_func1|decode_func2][!]le@string": [经过decode函数处理后的]字符串[不]小于等于string(字典顺序)
   + "str:[decode_func1|decode_func2][!]ge@string": [经过decode函数处理后的]字符串[不]大于等于string(字典顺序)
