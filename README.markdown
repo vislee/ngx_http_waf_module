@@ -147,8 +147,11 @@ The rule format:
 For example:
 
   "str:eq@/index.php" "z:#URL"  `curl 'http://x/index.php'` will be block
+
   "str:eq@bar" "z:V_ARGS:foo"  `curl 'http://x/?foo=bar'` will be block
+
   "str:eq@bar" "z:V_HEADERS:foo"  `curl -H'foo: bar' 'http://x/'` will be block
+
 
 A complete rule configuration.
 
