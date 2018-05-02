@@ -146,11 +146,11 @@ The rule format:
 
 For example:
 
-  "str:eq@/index.php" "z:#URL"  `curl 'http://x/index.php'` will be block
+  "str:eq@/index.php" "z:#URL"  `curl 'http://x/index.php'` will be blocked
 
-  "str:eq@bar" "z:V_ARGS:foo"  `curl 'http://x/?foo=bar'` will be block
+  "str:eq@bar" "z:V_ARGS:foo"  `curl 'http://x/?foo=bar'` will be blocked
 
-  "str:eq@bar" "z:V_HEADERS:foo"  `curl -H'foo: bar' 'http://x/'` will be block
+  "str:eq@bar" "z:V_HEADERS:foo"  `curl -H'foo: bar' 'http://x/'` will be blocked
 
 
 A complete rule configuration.
@@ -172,7 +172,7 @@ security_loc_rule
 
 Set the location rules.
 
-You can set the whitelist disable of the general rules of the specified IDs.
+Also, you can set the whitelist disable of the general rules of the specified IDs.
 
 The whitelist rule format:
 ```nginx
