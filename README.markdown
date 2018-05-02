@@ -101,14 +101,14 @@ security_rule
 
 **context:** *http*
 
-Set the general rules. All of `http` containing `location` is visible.
+Set general rules. All the `location` contained in `http` is visible.
 
 The rule format:
 
  `security_rule id:number match-strategy "s:$TAG:score,$TAG2:score" "z:zones" "note:message";`
 
-+ id: the rules of the ID.
-+ match-strategy: the rules of strategy.
++ id: The ID of the rule.
++ match-strategy: The strategy of rule.
   + str:[decode_func1|decode_func2|][!]le@string
   + str:[decode_func1|decode_func2|][!]ge@string
   + str:[decode_func1|decode_func2|][!]ct@string
@@ -121,13 +121,13 @@ The rule format:
   + hash:[!]md5@hashcode
   + hash:[!]crc32@hashcode
   + hash:[!]crc32_long@hashcode
-  + libmagic:mime_type@mime_type
+  + libmagic:[!]mime_type@mime_type
 
 >>decode_func: decode_url or decode_base64
 
 >>!: not. eg: "!eq@test" - Is not equal to 'test'. 
 
-+ zones: the match zone.
++ zones: The match zones of rule.
   + #URL
   + V_URL:string
   + X_URL:regex
@@ -144,7 +144,14 @@ The rule format:
   + #FILE
   + X_FILE:regex
 
-eg:
+For example:
+
+  "str:eq@/index.php" "z:#URL"  `curl 'http://x/index.php'` will be block
+  "str:eq@bar" "z:V_ARGS:foo"  `curl 'http://x/?foo=bar'` will be block
+  "str:eq@bar" "z:V_HEADERS:foo"  `curl -H'foo: bar' 'http://x/'` will be block
+
+A complete rule configuration.
+
 ```nginx
 security_rule id:100 "str:decode_base64|decode_url|!eq@foo bar" "s:$ATT:2,$SQLI:1" "z:V_ARGS:foo|#HEADERS" "note:test rule";
 ```
@@ -162,8 +169,12 @@ security_loc_rule
 
 Set the location rules.
 
-You can set the whitelist disable of the general rules of the specified ids.
-The whitelist rule format: `security_loc_rule "wl:id1,id2" "z:zones" "note:test whitelist";`
+You can set the whitelist disable of the general rules of the specified IDs.
+
+The whitelist rule format:
+```nginx
+security_loc_rule "wl:id1,id2" "z:zones" "note:test whitelist";
+```
 
 
 [Back to TOC](#table-of-contents)
@@ -189,7 +200,7 @@ security_check
 
 **context:** *location*
 
-Set rule score threshold and action.
+Setting rules accumulating scoring thresholds and actions.
 
 The action include:
 
@@ -209,7 +220,7 @@ security_log
 
 **context:** *location*
 
-The matching rules of logs.
+A log that requests a hit rule.
 
 [Back to TOC](#table-of-contents)
 
