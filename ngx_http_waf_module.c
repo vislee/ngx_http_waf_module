@@ -782,7 +782,8 @@ ngx_http_waf_create_loc_conf(ngx_conf_t *cf)
 
 
 // -- public ---------------
-static u_char *ngx_strpbrk(u_char *b, u_char *e, char *s) {
+static u_char *
+ngx_strpbrk(u_char *b, u_char *e, char *s) {
     u_char *p = b;
 
     while (p < e) {
@@ -797,7 +798,7 @@ static u_char *ngx_strpbrk(u_char *b, u_char *e, char *s) {
 }
 
 
-u_char *
+static u_char *
 ngx_memnstr(u_char *s1, char *s2, size_t len)
 {
     u_char  c1, c2;
