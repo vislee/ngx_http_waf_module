@@ -217,13 +217,15 @@ The action include:
 
 security_log
 ------------
-**syntax:** *security_log <logfile|off>*
+**syntax:** *security_log <file|off> [unflat]*
 
 **default:** *off*
 
 **context:** *location*
 
 A log that requests a hit rule.
+
+Logging to [syslog](http://nginx.org/en/docs/syslog.html) can be configured by specifying the “syslog:” prefix.
 
 [Back to TOC](#table-of-contents)
 
