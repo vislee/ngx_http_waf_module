@@ -4331,7 +4331,7 @@ ngx_http_waf_log_format(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
 static ngx_int_t
 ngx_http_waf_log_handler(ngx_http_request_t *r)
 {
-    u_char                      line[NGX_HTTP_WAF_MAX_LOG_STR], *p, *buf;
+    u_char                      line[NGX_HTTP_WAF_MAX_LOG_STR], *p;
     size_t                      len;
     ngx_http_waf_ctx_t         *ctx;
     ngx_http_waf_loc_conf_t    *wlcf;
@@ -4351,7 +4351,6 @@ ngx_http_waf_log_handler(ngx_http_request_t *r)
 
     len = sizeof(line);
     ngx_memzero(line, len);
-    buf = line;
 
     p = ngx_http_waf_log_format(r, ctx, wlcf->log->flat, line, sizeof(line));
 
