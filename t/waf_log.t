@@ -23,7 +23,7 @@ use Test::Nginx;
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
-my $t = Test::Nginx->new()->plan(5)
+my $t = Test::Nginx->new()->plan(6)
     ->write_file_expand('nginx.conf', <<'EOF');
 
 %%TEST_GLOBALS%%
@@ -69,8 +69,12 @@ http {
 
         location /log/unflat {
             security_loc_rule id:3001 "str:eq@test" "z:ARGS";
+            security_loc_rule id:3002 "str:eq@unflat" "s:$TLOG:2" "z:ARGS";
+
 
             security_waf on;
+            security_check $TLOG>3 DROP;
+
             security_log %%TESTDIR%%/waf_unflat.log unflat;
             proxy_pass http://127.0.0.1:8082/;
         }
@@ -100,6 +104,7 @@ my $s = IO::Socket::INET->new(
 
 
 http_get('/log/unflat?foo=test');
+http_get('/log/unflat?foo=unflat&bar=unflat');
 http_get('/sec/log?foo=test');
 http_get('/sec/log?waflog=hello&hello=waflog');
 http_get('/sec/log/allow/url?waflog=hello&hello=waflog');
@@ -108,6 +113,7 @@ like(get_syslog('/log/syslog?foo=test'), qr/SEETHIS:/, 'waf syslog tag');
 $t->stop();
 
 like($t->read_file('waf_unflat.log'), qr/"rule": {"id": "3001"/, 'waf unflat log');
+like($t->read_file('waf_unflat.log'), qr/"result": "DROP", "TLOG": {"total": "4", "rule": /, 'waf unflat log');
 like($t->read_file('waf.log'), qr/"rule_BLOCK_1001_score": "0"/, 'waf log');
 like($t->read_file('waf.log'), qr/"TLOG_total": "4"/, 'waf log');
 like($t->read_file('waf.log'), qr/"ALLOW_total": "2"/, 'waf log');
