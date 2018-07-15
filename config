@@ -19,6 +19,21 @@ if [ "$NGX_PLATFORM" != win32 ]; then
         ngx_waf_libs="$ngx_waf_libs $ngx_feature_libs"
         ngx_found=no
     fi
+
+    #echo "Hyperscan check ..."
+    ngx_feature="Hyperscan library"
+    ngx_feature_name="NGX_WAF_HS"
+    ngx_feature_run=yes
+    ngx_feature_incs="#include <hs/hs.h>"
+    ngx_feature_path=
+    ngx_feature_libs="-lhs"
+    ngx_feature_test="if (hs_valid_platform() == HS_ARCH_ERROR) return 1;"
+    . auto/feature
+
+    if [ $ngx_found = yes ]; then
+        ngx_waf_libs="$ngx_waf_libs $ngx_feature_libs"
+        ngx_found=no
+    fi
 fi
 
 
