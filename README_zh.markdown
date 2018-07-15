@@ -4,7 +4,7 @@ Name
 [![travis-ci](https://travis-ci.org/vislee/ngx_http_waf_module.svg?branch=master)](https://travis-ci.org/vislee/ngx_http_waf_module)
 [![Coverage Status](https://coveralls.io/repos/github/vislee/ngx_http_waf_module/badge.svg?branch=master)](https://coveralls.io/github/vislee/ngx_http_waf_module?branch=master)
 
-**ngx_http_waf_module** 是一个开源的、高效的、规则简单可配置、策略易扩展的nginx WAF模块。
+**ngx_http_waf_module** 是一个开源的、高效的、规则简单、策略易扩展的nginx WAF模块。
 
 
 Table of Contents
@@ -201,7 +201,7 @@ security_check
 LOG: 仅记录一条日志。
 BLOCK: 拒绝请求，返回403.
 DROP: 关闭连接。
-ALLOW: 允许通过。
+ALLOW: 跳过剩余规则。
 $variable: 满足条件该变量的值为"block"，和map指令配合使用。
 
 例如： 
