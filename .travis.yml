@@ -12,6 +12,7 @@ addons:
     - cpanminus
     - lcov
     - libmagic-dev
+    - libhyperscan
 
 install:
   - gem install coveralls-lcov
@@ -24,6 +25,7 @@ before_script:
   - lcov --directory ../nginx --zerocounters
 
 script:
+  - yum search hyperscan
   - ls -ltra
   - cd ../nginx
   - ls -ltra
