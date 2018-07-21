@@ -13,6 +13,7 @@ Table of Contents
 * [Status](#status)
 * [Install](#install)
 * [Example Configuration](#example-configuration)
+* [TODO](#todo)
 * [Directives](#directives)
     * [security_rule](#security_rule)
     * [security_loc_rule](#security_loc_rule)
@@ -89,6 +90,12 @@ http {
 
 [Back to TOC](#table-of-contents)
 
+TODO
+==========
+
++ add directive `security_timeout` limit rule filter timeout.
+
+[Back to TOC](#table-of-contents)
 
 Directives
 ==========
