@@ -2316,7 +2316,7 @@ ngx_http_waf_parse_rule_str(ngx_conf_t *cf, ngx_str_t *str,
     hs_error_t                    err;
     hs_compile_error_t           *error;
 #else
-    u_char                        errstr[NGX_MAX_CONF_ERRSTR]
+    u_char                        errstr[NGX_MAX_CONF_ERRSTR];
     ngx_regex_compile_t           rc;
 #endif
 
