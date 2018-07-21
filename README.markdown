@@ -94,6 +94,7 @@ TODO
 ==========
 
 + add directive `security_timeout` limit rule filter timeout.
++ support content-type: json and xml.
 
 [Back to TOC](#table-of-contents)
 
