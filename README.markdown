@@ -348,6 +348,7 @@ See Also
 + nginx: ngx_http_waf_module based on nginx.
 + naxsi: ngx_http_waf_module has learned a lot of from it.
 + [libinjection](https://github.com/client9/libinjection): ngx_http_waf_module refer to this library.
++ [Hyperscan](https://github.com/intel/hyperscan): replace the PCRE.
 + libmagic: ngx_http_waf_module refer to this library.
 
 [Back to TOC](#table-of-contents)
