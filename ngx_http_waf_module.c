@@ -329,6 +329,7 @@ struct ngx_http_waf_log_s {
 typedef struct {
     ngx_flag_t           security_waf;
     ngx_http_waf_log_t  *log;
+    ngx_msec_t           security_timeout;
 
     ngx_array_t         *check_rules;  /* ngx_http_waf_check_t */
     ngx_array_t         *whitelists;  /* ngx_http_waf_whitelist_t */
@@ -749,6 +750,13 @@ static ngx_command_t  ngx_http_waf_commands[] = {
       0,
       NULL },
 
+    { ngx_string("security_timeout"),
+      NGX_HTTP_LOC_CONF|NGX_HTTP_LMT_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_msec_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_waf_loc_conf_t, security_timeout),
+      NULL },
+
       ngx_null_command
 };
 
@@ -810,6 +818,7 @@ ngx_http_waf_create_loc_conf(ngx_conf_t *cf)
     }
 
     wlcf->security_waf = NGX_CONF_UNSET;
+    wlcf->security_timeout = NGX_CONF_UNSET_MSEC;
     wlcf->log = NULL;
 
     return wlcf;
@@ -1101,6 +1110,25 @@ ngx_http_waf_search_whitelist(ngx_array_t *wl, ngx_int_t id)
     }
 
     return &a[i];
+}
+
+
+static ngx_int_t
+ngx_http_waf_score_timeout(ngx_http_request_t *r,
+    ngx_http_waf_loc_conf_t *wlcf)
+{
+    ngx_time_t      *tp;
+    ngx_msec_t       ms;
+
+    tp = ngx_timeofday();
+
+    ms = (tp->sec - r->start_sec) * 1000 + (tp->msec - r->start_msec);
+
+    if (ms > wlcf->security_timeout) {
+        return NGX_OK;
+    }
+
+    return NGX_ERROR;
 }
 
 
@@ -1522,6 +1550,9 @@ ngx_http_waf_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         conf->security_waf = 0;
         return NGX_CONF_OK;
     }
+
+    ngx_conf_merge_msec_value(conf->security_timeout,
+                              prev->security_timeout, 60000);
 
     wmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_waf_module);
     if (wmcf == NULL) {
@@ -3488,6 +3519,8 @@ ngx_http_waf_rule_filter(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
             return NGX_ABORT;
         }
 
+        // if (ngx_http_waf_score_timeout())
+
         continue;
     }
 
@@ -3510,6 +3543,10 @@ ngx_http_waf_score_url(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
     if (ctx == NULL || ngx_http_waf_score_is_done(ctx->status)) {
+        return;
+    }
+
+    if (ngx_http_waf_score_timeout(r, wlcf) == NGX_OK) {
         return;
     }
 
@@ -3539,6 +3576,10 @@ ngx_http_waf_score_args(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
     if (ctx == NULL || ngx_http_waf_score_is_done(ctx->status)) {
+        return;
+    }
+
+    if (ngx_http_waf_score_timeout(r, wlcf) == NGX_OK) {
         return;
     }
 
@@ -3601,6 +3642,10 @@ ngx_http_waf_score_args(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
         if (ngx_http_waf_score_is_done(ctx->status)) {
             goto done;
         }
+
+        if (ngx_http_waf_score_timeout(r, wlcf) == NGX_OK) {
+            goto done;
+        }
     }
 
 
@@ -3630,6 +3675,10 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
         return;
     }
 
+    if (ngx_http_waf_score_timeout(r, wlcf) == NGX_OK) {
+        return;
+    }
+
     part = &r->headers_in.headers.part;
     header = part->elts;
 
@@ -3653,6 +3702,10 @@ ngx_http_waf_score_headers(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
             &header[i].key, &header[i].value, header[i].hash);
 
         if (ngx_http_waf_score_is_done(ctx->status)) {
+            goto done;
+        }
+
+        if (ngx_http_waf_score_timeout(r, wlcf) == NGX_OK) {
             goto done;
         }
     }
@@ -3696,6 +3749,10 @@ ngx_http_waf_parse_multi_body(ngx_http_request_t *r,
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_waf_module);
     if (ctx == NULL || ngx_http_waf_score_is_done(ctx->status)) {
+        return NGX_OK;
+    }
+
+    if (ngx_http_waf_score_timeout(r, wlcf) == NGX_OK) {
         return NGX_OK;
     }
 
@@ -3955,6 +4012,10 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
         return;
     }
 
+    if (ngx_http_waf_score_timeout(r, wlcf) == NGX_OK) {
+        return;
+    }
+
     if (r->request_body == NULL
         || r->request_body->temp_file
         || r->request_body->bufs == NULL)
@@ -4052,6 +4113,10 @@ ngx_http_waf_score_body(ngx_http_request_t *r, ngx_http_waf_loc_conf_t *wlcf)
             }
 
             if (ngx_http_waf_score_is_done(ctx->status)) {
+                goto done;
+            }
+
+            if (ngx_http_waf_score_timeout(r, wlcf) == NGX_OK) {
                 goto done;
             }
         }

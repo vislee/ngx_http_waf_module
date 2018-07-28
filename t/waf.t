@@ -122,6 +122,7 @@ http {
 
         location / {
             security_waf on;
+            security_timeout 100ms;
 
             client_body_buffer_size 8k;
 
