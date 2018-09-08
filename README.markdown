@@ -20,6 +20,7 @@ Table of Contents
     * [security_waf](#security_waf)
     * [security_check](#security_check)
     * [security_log](#security_log)
+    * [security_timeout](#security_timeout)
 * [New match strategy](#new-match-strategy)
 * [Author](#author)
 * [Copyright and License](#copyright-and-license)
@@ -93,7 +94,6 @@ http {
 TODO
 ==========
 
-+ add directive `security_timeout` limit rule filter timeout.
 + support content-type: json and xml.
 
 [Back to TOC](#table-of-contents)
@@ -237,6 +237,17 @@ Logging to [syslog](http://nginx.org/en/docs/syslog.html) can be configured by s
 
 [Back to TOC](#table-of-contents)
 
+security_timeout
+----------------
+**syntax:** *security_timeout time*
+
+**default:** *60s*
+
+**context:** *location*
+
+Defines a timeout for waf-rule filter. If filter is not finish, the filter return pass.
+
+[Back to TOC](#table-of-contents)
 
 New match strategy
 ===========
