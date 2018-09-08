@@ -2337,6 +2337,24 @@ ngx_http_waf_parse_rule_decode(ngx_conf_t *cf, ngx_array_t *decode_handlers,
     return offset;
 }
 
+#ifdef NGX_WAF_HS
+static void
+ngx_http_waf_rule_cleanup(void *data)
+{
+    ngx_http_waf_public_rule_t  *p_rule = data;
+
+    if (p_rule->db != NULL) {
+        hs_free_database(p_rule->db);
+        p_rule->db = NULL;
+    }
+
+    if (p_rule->scratch != NULL) {
+        hs_free_scratch(p_rule->scratch);
+        p_rule->scratch = NULL;
+    }
+}
+#endif
+
 static ngx_int_t
 ngx_http_waf_parse_rule_str(ngx_conf_t *cf, ngx_str_t *str,
     ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
@@ -2346,6 +2364,7 @@ ngx_http_waf_parse_rule_str(ngx_conf_t *cf, ngx_str_t *str,
 #ifdef NGX_WAF_HS
     hs_error_t                    err;
     hs_compile_error_t           *error;
+    ngx_pool_cleanup_t           *cln;
 #else
     u_char                        errstr[NGX_MAX_CONF_ERRSTR];
     ngx_regex_compile_t           rc;
@@ -2429,6 +2448,14 @@ ngx_http_waf_parse_rule_str(ngx_conf_t *cf, ngx_str_t *str,
                                "hs_alloc_scratch error %d", err);
             return NGX_ERROR;
         }
+
+        cln = ngx_pool_cleanup_add(cf->pool, 0);
+        if (cln == NULL) {
+            return NGX_ERROR;
+        }
+
+        cln->handler = ngx_http_waf_rule_cleanup;
+        cln->data = opt->p_rule;
 #else
         ngx_memzero(&rc, sizeof(ngx_regex_compile_t));
 
@@ -2531,6 +2558,24 @@ ngx_http_waf_parse_rule_note(ngx_conf_t *cf, ngx_str_t *str,
     return NGX_OK;
 }
 
+
+static void
+ngx_http_waf_zone_cleanup(void *data)
+{
+    ngx_http_waf_zone_t  *zone = data;
+
+    if (zone->db != NULL) {
+        hs_free_database(zone->db);
+        zone->db = NULL;
+    }
+
+    if (zone->scratch != NULL) {
+        hs_free_scratch(zone->scratch);
+        zone->scratch = NULL;
+    }
+}
+
+
 // URI、V_URI、X_URI
 // ARGS V_ARGS X_ARGS
 // HEADERS V_HEADERS X_HEADERS
@@ -2547,6 +2592,7 @@ ngx_http_waf_parse_rule_zone(ngx_conf_t *cf, ngx_str_t *str,
 #ifdef NGX_WAF_HS
     hs_error_t                     err;
     hs_compile_error_t            *error;
+    ngx_pool_cleanup_t            *cln;
 #else
     u_char                         errstr[NGX_MAX_CONF_ERRSTR];
     ngx_regex_compile_t            rc;
@@ -2649,6 +2695,14 @@ ngx_http_waf_parse_rule_zone(ngx_conf_t *cf, ngx_str_t *str,
                     "hs_alloc_scratch error %d", err);
                 return NGX_ERROR;
             }
+
+            cln = ngx_pool_cleanup_add(cf->pool, 0);
+            if (cln == NULL) {
+                return NGX_ERROR;
+            }
+
+            cln->handler = ngx_http_waf_zone_cleanup;
+            cln->data = zone;
 #else
             ngx_memzero(&rc, sizeof(ngx_regex_compile_t));
             rc.pool = cf->pool;
