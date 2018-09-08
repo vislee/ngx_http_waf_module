@@ -2558,7 +2558,7 @@ ngx_http_waf_parse_rule_note(ngx_conf_t *cf, ngx_str_t *str,
     return NGX_OK;
 }
 
-
+#ifdef NGX_WAF_HS
 static void
 ngx_http_waf_zone_cleanup(void *data)
 {
@@ -2574,7 +2574,7 @@ ngx_http_waf_zone_cleanup(void *data)
         zone->scratch = NULL;
     }
 }
-
+#endif
 
 // URI、V_URI、X_URI
 // ARGS V_ARGS X_ARGS
