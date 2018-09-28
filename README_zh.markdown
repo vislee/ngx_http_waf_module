@@ -19,7 +19,8 @@ Table of Contents
     * [security_waf](#security_waf)
     * [security_check](#security_check)
     * [security_log](#security_log)
-* [New strategy](#new-strategy)
+    * [security_timeout](#security_timeout)
+* [New match strategy](#new-match-strategy)
 * [Author](#author)
 * [Copyright and License](#copyright-and-license)
 * [See Also](#see-also)
@@ -211,7 +212,7 @@ $variable: 满足条件该变量的值为"block"，和map指令配合使用。
 
 security_log
 ------------
-**语法** *security_log <logfile|off>*
+**语法** *security_log <logfile|off> [unflat]*
 
 **默认:** *off*
 
@@ -219,13 +220,105 @@ security_log
 
 以json格式记录命中的规则和请求。
 
+支持以`syslog:`开始的配置，把日志通过[syslog](http://nginx.org/en/docs/syslog.html)的形式记录。
+
 [Back to TOC](#table-of-contents)
 
+security_timeout
+----------------
+**语法:** *security_timeout time*
 
-New strategy
-===========
+**默认:** *60s*
+
+**环境:** *location*
+
+单个请求规则过滤时长。
+
+[Back to TOC](#table-of-contents)
+
+New match strategy
+==================
 
 如果现有策略不满足需求，新的策略扩展也是非常容易的。仅需要开发两个函数，注册到模块中就可以了。例如调用了libinjection这个库扩展sql注入检测。
+
+```c
+// The parse directive function
+static ngx_int_t
+ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
+    ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
+{
+    u_char             *p, *e;
+    ngx_int_t           offset;
+
+    static ngx_str_t    sql = ngx_string("sql");
+    static ngx_str_t    xss = ngx_string("xss");
+
+    if (str->len - parser->prefix.len < 3) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+            "invalid libinj in arguments \"%V\"", str);
+        return NGX_ERROR;
+    }
+
+    p = str->data + parser->prefix.len;
+    e = str->data + str->len;
+
+    offset = ngx_http_waf_parse_rule_decode(cf, opt->p_rule->decode_handlers,
+        p, e - 4);
+    if (offset == NGX_ERROR) {
+        return NGX_ERROR;
+    }
+
+    p += offset;
+
+    if ((size_t)(e - p) == sql.len
+        && ngx_strncmp(p, sql.data, sql.len) == 0)
+    {
+        opt->p_rule->str = sql;
+        opt->p_rule->handler = ngx_http_waf_rule_str_sqli_handler;
+
+    } else if ((size_t)(e - p) == xss.len
+        && ngx_strncmp(p, xss.data, xss.len) == 0)
+    {
+        opt->p_rule->str = xss;
+        opt->p_rule->handler = ngx_http_waf_rule_str_xss_handler;
+
+    } else {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+            "invalid libinj args in arguments \"%V\"", str);
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+// matching-strategy callback function
+static ngx_int_t
+ngx_http_waf_rule_str_sqli_handler(ngx_http_waf_public_rule_t *pr,
+    ngx_str_t *s)
+{
+    ngx_int_t                       issqli;
+    struct libinjection_sqli_state  state;
+
+    if (s == NULL || s->data == NULL || s->len == 0) {
+        return NGX_ERROR;
+    }
+
+    libinjection_sqli_init(&state, (const char *)s->data, s->len, FLAG_NONE);
+    issqli = libinjection_is_sqli(&state);
+    if (!issqli) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+// registered parse directive function
+static ngx_http_waf_rule_parser_t  ngx_http_waf_rule_parser_item[] = {
+    ......
+    {ngx_string("libinj:"),    ngx_http_waf_parse_rule_libinj},
+    ......
+  }
+```
 
 [Back to TOC](#table-of-contents)
 
@@ -252,5 +345,11 @@ All rights reserved.
 
 See Also
 ========
+
++ nginx: ngx_http_waf_module 是nginx的一个模块.
++ naxsi: ngx_http_waf_module 从naxsi吸取了很多灵感.
++ [libinjection](https://github.com/client9/libinjection): ngx_http_waf_module sqli和xss调用了该库.
++ [Hyperscan](https://github.com/intel/hyperscan): 若安装了该库，则会用该库替换掉libPCRE这个默认的正则库.
++ libmagic: ngx_http_waf_module 引用该库用来识别文件类型.
 
 [Back to TOC](#table-of-contents)
