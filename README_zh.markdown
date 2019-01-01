@@ -336,7 +336,7 @@ Copyright and License
 This module is licensed under the [GPL](http://www.gnu.org/licenses/licenses.zh-cn.html
 ) license.
 
-Copyright (C) 2018, by vislee.
+Copyright (C) 2018-2019, by vislee.
 
 All rights reserved.
 
