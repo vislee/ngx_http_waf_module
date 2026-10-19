@@ -39,6 +39,16 @@ LIBINJECTION_BEGIN_DECLS
 const char* libinjection_version(void);
 
 /**
+ * One in-place pass of URL decoding: %XX, %uXXXX (IIS) and '+' to
+ * space.  The decoded result never exceeds the input length.
+ *
+ * \param[in,out] buf input/output buffer
+ * \param[in] len input length
+ * \return decoded length
+ */
+size_t libinjection_urldecode(char* buf, size_t len);
+
+/**
  * Simple API for SQLi detection - returns a SQLi fingerprint or NULL
  * is benign input
  *

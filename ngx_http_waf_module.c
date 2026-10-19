@@ -7,6 +7,7 @@
 
 #include "libinjection/libinjection.h"
 #include "libinjection/libinjection_sqli.h"
+#include "libinjection/libinjection_classify.h"
 
 #ifdef NGX_WAF_MAGIC
 #include <magic.h>
@@ -154,6 +155,11 @@ ngx_http_waf_get_act(ngx_uint_t flag) {
 #define NGX_HTTP_WAF_MZ_G_BODY           0x00008
 #define NGX_HTTP_WAF_MZ_G_RAW_BODY       0x01000
 
+// whitelist value constraint: zone carries a value regex (z:V_ARGS:name~re).
+// SecRuleUpdateTargetById-style target scoping: only suppress scoring of
+// matching rule for this (name, value) target, never for the key scan.
+#define NGX_HTTP_WAF_MZ_WL_VAL           0x10000
+
 
 // specify variable
 #define NGX_HTTP_WAF_MZ_VAR              0x040F0
@@ -191,6 +197,8 @@ ngx_http_waf_get_act(ngx_uint_t flag) {
     ((flag) & NGX_HTTP_WAF_MZ_G)
 #define ngx_http_waf_mz_is_regex(flag)             \
     ((flag) & NGX_HTTP_WAF_MZ_X)
+#define ngx_http_waf_mz_is_wl_val(flag)            \
+    ((flag) & NGX_HTTP_WAF_MZ_WL_VAL)
 #define ngx_http_waf_mz_key(flag)        \
     ((flag) & NGX_HTTP_WAF_STS_MZ_KEY)
 #define ngx_http_waf_mz_val(flag)        \
@@ -232,10 +240,19 @@ typedef struct ngx_http_waf_score_s {
 } ngx_http_waf_score_t;
 
 
+// score tag -> libinjection class bit mapping item
+typedef struct {
+    ngx_str_t                name;
+    ngx_int_t                bit;
+} ngx_http_waf_cls_item_t;
+
+
 // the rule
 struct ngx_http_waf_public_rule_s {
     ngx_int_t               id;
     ngx_str_t               str;
+    ngx_uint_t              cls_mask;   /* libinj:all: class bits of the
+                                            last classify_url() call */
 
 #ifdef NGX_WAF_HS
     hs_database_t          *db;
@@ -446,6 +463,7 @@ static char *ngx_http_waf_loc_rule(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_waf_check_rule(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+static ngx_int_t ngx_http_waf_score_tag_class_bit(ngx_str_t *tag);
 static char *ngx_http_waf_set_log(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static void ngx_http_waf_syslog_writer(ngx_http_waf_log_t *log,
@@ -505,6 +523,8 @@ static ngx_int_t ngx_http_waf_rule_str_rx_handler(
 static ngx_int_t ngx_http_waf_rule_str_sqli_handler(
     ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
 static ngx_int_t ngx_http_waf_rule_str_xss_handler(
+    ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
+static ngx_int_t ngx_http_waf_rule_str_classify_handler(
     ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
 static ngx_int_t ngx_http_waf_rule_magic_mimetype_handler(
     ngx_http_waf_public_rule_t *pr, ngx_str_t *s);
@@ -1110,6 +1130,42 @@ ngx_http_waf_search_whitelist(ngx_array_t *wl, ngx_int_t id)
     }
 
     return &a[i];
+}
+
+
+// score tag -> libinjection class bit (libinjection_classify.h), used by
+// libinj:all per-class scoring in score_calc(). NGX_OK=0 means "no mapping".
+static ngx_int_t
+ngx_http_waf_score_tag_class_bit(ngx_str_t *tag)
+{
+    static ngx_http_waf_cls_item_t  items[] = {
+        { ngx_string("SQLI"),     0x0001 },
+        { ngx_string("XSS"),      0x0002 },
+        { ngx_string("RCE"),      0x0004 },  /* CMD */
+        { ngx_string("TRAV"),     0x0008 },
+        { ngx_string("LFI"),      0x0008 },  /* trav == LFI semantics */
+        { ngx_string("SSRF"),     0x0010 },
+        { ngx_string("SSTI"),     0x0020 },
+        { ngx_string("NOSQL"),    0x0040 },
+        { ngx_string("LDAP"),     0x0080 },
+        { ngx_string("DESER"),    0x0100 },
+        { ngx_string("CRLF"),     0x0200 },
+        { ngx_string("CODE"),     0x0400 },
+        { ngx_string("RECON"),    0x0800 },
+        { ngx_string("REDIRECT"), 0x1000 },
+        { ngx_null_string, 0 }
+    };
+    ngx_uint_t   i;
+
+    for (i = 0; items[i].name.data != NULL; i++) {
+        if (tag->len == items[i].name.len
+            && ngx_strncmp(tag->data, items[i].name.data, tag->len) == 0)
+        {
+            return items[i].bit;
+        }
+    }
+
+    return 0;
 }
 
 
@@ -1969,6 +2025,15 @@ ngx_http_waf_main_rule(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return "the rule lack of zone";
     }
 
+    // value-constrained zones ("name~re") are whitelist-only.
+    zone = opt.m_zones->elts;
+    for (i = 0; i < opt.m_zones->nelts; i++) {
+        if (ngx_http_waf_mz_is_wl_val(zone[i].flag)) {
+            return "value constraint \"~\" is only allowed "
+                   "in whitelist rules";
+        }
+    }
+
     zone = opt.m_zones->elts;
     for (i = 0; i < opt.m_zones->nelts; i++) {
         vailid = 0;
@@ -2015,6 +2080,17 @@ ngx_http_waf_loc_rule(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     if (opt.wl_ids == NULL && opt.m_zones->nelts == 0) {
         return "lack of zone";
+    }
+
+    // value-constrained zones ("name~re") are whitelist-only.
+    if (opt.wl_ids == NULL) {
+        zones = opt.m_zones->elts;
+        for (i = 0; i < opt.m_zones->nelts; i++) {
+            if (ngx_http_waf_mz_is_wl_val(zones[i].flag)) {
+                return "value constraint \"~\" is only allowed "
+                       "in whitelist rules";
+            }
+        }
     }
 
     // add whitelist
@@ -2587,7 +2663,7 @@ static ngx_int_t
 ngx_http_waf_parse_rule_zone(ngx_conf_t *cf, ngx_str_t *str,
     ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
 {
-    u_char                        *p, *s, *e;
+    u_char                        *p, *s, *t, *e;
     ngx_uint_t                     i, flag, all_flag;
 #ifdef NGX_WAF_HS
     hs_error_t                     err;
@@ -2646,9 +2722,8 @@ ngx_http_waf_parse_rule_zone(ngx_conf_t *cf, ngx_str_t *str,
 
         ngx_memzero(zone, sizeof(ngx_http_waf_zone_t));
 
-        zone->flag = flag;
-
         if (ngx_http_waf_mz_is_general(flag)) {
+            zone->flag = flag;
             continue;
         }
 
@@ -2669,12 +2744,41 @@ ngx_http_waf_parse_rule_zone(ngx_conf_t *cf, ngx_str_t *str,
             return NGX_ERROR;
         }
 
+        /* value constraint "name~regex" (whitelist target scoping only):
+         * split at the first '~'; the tail becomes the value regex */
+        t = ngx_strlchr(p, s, '~');
+        if (t != NULL) {
+            if (t == p) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "empty zone name before \"~\" in arguments \"%V\"",
+                               str);
+                return NGX_ERROR;
+            }
+
+            if (ngx_http_waf_mz_is_regex(flag)) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                    "value constraint \"~\" is not allowed "
+                    "with regex zones, in arguments \"%V\"", str);
+                return NGX_ERROR;
+            }
+
+            if (t + 1 == s) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "empty value constraint in arguments \"%V\"", str);
+                return NGX_ERROR;
+            }
+
+            flag |= NGX_HTTP_WAF_MZ_WL_VAL;
+        }
+
+        zone->flag = flag;
+
         zone->name.data = ngx_pcalloc(cf->pool, s - p + 1);
         if (zone->name.data == NULL) {
             return NGX_ERROR;
         }
-        ngx_memcpy(zone->name.data, p, s - p);
-        zone->name.len = s - p;
+        zone->name.len = (t != NULL) ? (size_t) (t - p) : (size_t) (s - p);
+        ngx_memcpy(zone->name.data, p, zone->name.len);
 
         if (ngx_http_waf_mz_is_regex(flag)) {
 #ifdef NGX_WAF_HS
@@ -2711,6 +2815,58 @@ ngx_http_waf_parse_rule_zone(ngx_conf_t *cf, ngx_str_t *str,
 
             rc.options = NGX_REGEX_CASELESS;
             rc.pattern = zone->name;
+
+            if (ngx_regex_compile(&rc) != NGX_OK) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "%V", &rc.err);
+                return NGX_ERROR;
+            }
+
+            zone->regex = rc.regex;
+#endif
+        }
+
+        if (ngx_http_waf_mz_is_wl_val(flag)) {
+            /* compile the value regex (tail after '~') into the same
+             * slot zone_regex_exec() reads: db for HS, regex for PCRE */
+            ngx_str_t  vp;
+
+            vp.data = t + 1;
+            vp.len = (size_t) (s - t - 1);
+
+#ifdef NGX_WAF_HS
+            err = hs_compile((const char *)vp.data,
+                HS_FLAG_CASELESS|HS_FLAG_DOTALL,
+                HS_MODE_BLOCK, NULL, &zone->db, &error);
+            if (err != HS_SUCCESS) {
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                    "hs_compile error. %s", error->message);
+                hs_free_compile_error(error);
+                return NGX_ERROR;
+            }
+
+            err = hs_alloc_scratch(zone->db, &zone->scratch);
+            if (err != HS_SUCCESS) {
+                hs_free_database(zone->db);
+                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                    "hs_alloc_scratch error %d", err);
+                return NGX_ERROR;
+            }
+
+            cln = ngx_pool_cleanup_add(cf->pool, 0);
+            if (cln == NULL) {
+                return NGX_ERROR;
+            }
+
+            cln->handler = ngx_http_waf_zone_cleanup;
+            cln->data = zone;
+#else
+            ngx_memzero(&rc, sizeof(ngx_regex_compile_t));
+            rc.pool = cf->pool;
+            rc.err.len = NGX_MAX_CONF_ERRSTR;
+            rc.err.data = errstr;
+
+            rc.options = NGX_REGEX_CASELESS;
+            rc.pattern = vp;
 
             if (ngx_regex_compile(&rc) != NGX_OK) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "%V", &rc.err);
@@ -2786,6 +2942,7 @@ ngx_http_waf_parse_rule_whitelist(ngx_conf_t *cf, ngx_str_t *str,
 
 // libinj:sql
 // libinj:xss
+// libinj:all
 static ngx_int_t
 ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
     ngx_http_waf_rule_parser_t *parser, ngx_http_waf_rule_opt_t *opt)
@@ -2795,6 +2952,7 @@ ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
 
     static ngx_str_t    sql = ngx_string("sql");
     static ngx_str_t    xss = ngx_string("xss");
+    static ngx_str_t    all = ngx_string("all");
 
     if (str->len - parser->prefix.len < 3) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
@@ -2813,7 +2971,11 @@ ngx_http_waf_parse_rule_libinj(ngx_conf_t *cf, ngx_str_t *str,
 
     p += offset;
 
-    if ((size_t)(e - p) == sql.len
+    if ((size_t)(e - p) == all.len && ngx_strncmp(p, all.data, all.len) == 0) {
+        opt->p_rule->str = all;
+        opt->p_rule->handler = ngx_http_waf_rule_str_classify_handler;
+
+    } else if ((size_t)(e - p) == sql.len
         && ngx_strncmp(p, sql.data, sql.len) == 0)
     {
         opt->p_rule->str = sql;
@@ -2977,6 +3139,21 @@ ngx_http_waf_score_calc(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
     cs = rule->score_checks->elts;
     for (k = 0; k < rule->score_checks->nelts; k++) {
         idx = cs[k].idx;
+
+        // libinj:all per-class scoring: only credit score tags whose class
+        // bit was detected by classify_url() for this value (pharos
+        // semantics). Tags without a class mapping score as before.
+        if (rule->p_rule->handler == ngx_http_waf_rule_str_classify_handler) {
+            ngx_int_t   bit;
+
+            bit = ngx_http_waf_score_tag_class_bit(&cs[k].tag);
+            if (bit != 0
+                && ((ngx_uint_t) bit & rule->p_rule->cls_mask) == 0)
+            {
+                continue;
+            }
+        }
+
         ss[idx].score += cs[k].score;
 
         // TODO: optimize >=
@@ -3241,6 +3418,35 @@ ngx_http_waf_rule_str_xss_handler(ngx_http_waf_public_rule_t *pr,
 }
 
 
+// libinj:all -- 13-class unified semantic detection (libinjection_classify_url:
+// runs every detector over the input plus up to three URL-decode rounds;
+// SQLi/XSS included, so it supersedes libinj:sql/libinj:xss when used)
+//
+// The detected class bitmask is stored in pr->cls_mask; score_calc() uses it
+// to only credit the score tags whose class bit is set (per-class scoring,
+// pharos semantics).
+static ngx_int_t
+ngx_http_waf_rule_str_classify_handler(ngx_http_waf_public_rule_t *pr,
+    ngx_str_t *s)
+{
+    libinjection_class_mask_t   mask;
+
+    if (s == NULL || s->data == NULL || s->len == 0) {
+        return NGX_ERROR;
+    }
+
+    mask = libinjection_classify_url((const char *)s->data, s->len,
+                                     LIBINJECTION_CLASS_ALL);
+    if (mask == 0) {
+        return NGX_ERROR;
+    }
+
+    pr->cls_mask = (ngx_uint_t) mask;
+
+    return NGX_OK;
+}
+
+
 static ngx_int_t
 ngx_http_waf_rule_magic_mimetype_handler(ngx_http_waf_public_rule_t *pr,
     ngx_str_t *s)
@@ -3361,12 +3567,42 @@ ngx_http_waf_rule_str_match(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
     ngx_http_waf_rule_t *rule, ngx_str_t *key, ngx_str_t *val)
 {
     ngx_int_t                     rc;
-    ngx_uint_t                    i;
+    ngx_uint_t                    i, k;
     ngx_str_t                     src, dst;
+    ngx_http_waf_zone_t          *mzs;
     ngx_http_waf_rule_decode_pt  *handlers;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
         "ngx http waf rule str match handler");
+
+    // whitelist value constraints: when a wl zone "name~re" matches this
+    // key and the value matches "re", the value target is exempted from
+    // scoring (SecRuleUpdateTargetById-style scoping; pharos exclusion
+    // semantics: the pattern defines the safe subset). Non-matching
+    // values score as usual.
+    if (val != NULL && val->len > 0 && rule->wl_zones != NULL) {
+        mzs = rule->wl_zones->elts;
+        for (k = 0; k < rule->wl_zones->nelts; k++) {
+            if (!ngx_http_waf_mz_is_wl_val(mzs[k].flag)) {
+                continue;
+            }
+
+            if (key == NULL || key->len != mzs[k].name.len
+                || ngx_strncasecmp(key->data, mzs[k].name.data,
+                                   key->len) != 0)
+            {
+                continue;
+            }
+
+            if (ngx_http_waf_zone_regex_exec(&mzs[k], val) == NGX_OK) {
+                ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "ngx http waf wl value constraint hit, skip value");
+
+                val = NULL;
+                break;
+            }
+        }
+    }
 
     // match key
     if (key != NULL && key->len > 0
@@ -3476,6 +3712,12 @@ ngx_http_waf_hash_find(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
         if (rule->wl_zones != NULL) {
             mzs = rule->wl_zones->elts;
             for (k = 0; k < rule->wl_zones->nelts; k++) {
+                // value-constrained zones never suppress the whole rule;
+                // they are evaluated per-value in rule_str_match
+                if (ngx_http_waf_mz_is_wl_val(mzs[k].flag)) {
+                    continue;
+                }
+
                 if (ngx_http_waf_mz_is_regex(mzs[k].flag)) {
                     if (ngx_http_waf_zone_regex_exec(&mzs[k], key) == NGX_OK) {
                         goto next;
@@ -3534,6 +3776,12 @@ ngx_http_waf_rule_filter(ngx_http_request_t *r, ngx_http_waf_ctx_t *ctx,
         if (rs[j].wl_zones != NULL) {
             mzs = rs[j].wl_zones->elts;
             for (k = 0; k < rs[j].wl_zones->nelts; k++) {
+                // value-constrained zones never suppress the whole rule;
+                // they are evaluated per-value in rule_str_match
+                if (ngx_http_waf_mz_is_wl_val(mzs[k].flag)) {
+                    continue;
+                }
+
                 if (ngx_http_waf_mz_is_regex(mzs[k].flag)) {
                     if (ngx_http_waf_zone_regex_exec(&mzs[k], key) == NGX_OK) {
                         goto nxt_rule;

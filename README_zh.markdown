@@ -121,6 +121,7 @@ security_rule
   + "str:[decode_func1|decode_func2][!]rx@regex": [经过decode函数处理后的]字符串[不]符合正则表达式
   + "libinj:[decode_func1|decode_func2][!]sql": [经过decode函数处理后的]字符串[不]存在sql注入
   + "libinj:[decode_func1|decode_func2][!]xss": [经过decode函数处理后的]字符串[不]存在xss攻击
+  + "libinj:[decode_func1|decode_func2][!]all": [经过decode函数处理后的]字符串[不]命中13类语义检测（sql/xss/cmd/code/crlf/deser/ldap/nosql/recon/redirect/ssrf/ssti/trav），命中时评分标签由`s:`指定
   + "hash:[!]md5@hashcode": 字符串的md5值[不]等于hashcode
   + "hash:[!]crc32@hashcode": 字符串的crc32[不]等于hashcode
   + "hash:[!]crc32_long@hashcode": 字符串的crc32_long[不]等于hashcode
@@ -172,6 +173,23 @@ security_loc_rule
 
 也可以配置屏蔽全局规则的白名单。
 白名单的格式：`security_loc_rule "wl:id1,id2" "z:zones" "note:test whitelist";`
+
+#### 带值约束的白名单（target 级排除）
+
+白名单的 zone 可以携带值正则：`z:V_ARGS:参数名~正则`。当参数值匹配该正则时，
+白名单中的规则**仅对该目标跳过**（与 ModSecurity `SecRuleUpdateTargetById`
+语义一致）；同一条规则对其它参数、以及参数名本身照常检测。仅限白名单规则
+（带 `wl:` 的 `security_loc_rule`）使用，且仅支持命名值 zone
+（`V_ARGS/V_HEADERS/V_BODY`）。
+
+示例：当 args `q` 的值以 `safe` 开头时跳过规则 941950：
+```nginx
+security_loc_rule "wl:941950" "z:V_ARGS:q~^safe";
+```
+
+> 注意：`libinj:all` 规则按类别计分 —— 只有载荷真正命中某类别时，规则的
+> `s:` 标签才会计分（例如 XSS 载荷不会给 `$SQLI` 加分，即使所有
+> `libinj:all` 规则都会对每个载荷执行检测）。
 
 [Back to TOC](#table-of-contents)
 

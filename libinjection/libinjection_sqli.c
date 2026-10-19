@@ -16,9 +16,10 @@
 
 #include "libinjection.h"
 #include "libinjection_sqli.h"
+#include "libinjection_normalize.h"
 #include "libinjection_sqli_data.h"
 
-#define LIBINJECTION_VERSION "3.9.2"
+#define LIBINJECTION_VERSION "4.0.0"
 
 #define LIBINJECTION_SQLI_TOKEN_SIZE  sizeof(((stoken_t*)(0))->val)
 #define LIBINJECTION_SQLI_MAX_TOKENS  5
@@ -1197,7 +1198,7 @@ static size_t parse_number(struct libinjection_sqli_state * sf)
  * without having to regenerated the SWIG (or other binding) in minor
  * releases.
  */
-const char* libinjection_version()
+const char* libinjection_version(void)
 {
     return LIBINJECTION_VERSION;
 }
@@ -2023,6 +2024,29 @@ int libinjection_sqli_blacklist(struct libinjection_sqli_state* sql_state)
     return TRUE;
 }
 
+/* TRUE if any comment token was seen during tokenization */
+static int has_comment_stats(const struct libinjection_sqli_state* sf)
+{
+    return sf->stats_comment_ddw ||
+        sf->stats_comment_ddx ||
+        sf->stats_comment_c ||
+        sf->stats_comment_hash;
+}
+
+/*
+ * TRUE for the one 'sos' middle-operator shape seen only in plain
+ * text: a long quoted phrase joined by '*', e.g.
+ *   MISTERGLAS.DK'*''''...   or   "*" (empty sides)
+ * Injection probes ('A' * 'B', '1' ^ 'B', ...) have a short left
+ * token and stay flagged.
+ */
+static int is_benign_middle_op(const struct libinjection_sqli_state* sf)
+{
+    const stoken_t* mid = &sf->tokenvec[1];
+    return mid->len == 1 && mid->val[0] == '*' &&
+        sf->tokenvec[0].len > 2;
+}
+
 /*
  * return TRUE if SQLi, false is benign
  */
@@ -2030,7 +2054,7 @@ int libinjection_sqli_not_whitelist(struct libinjection_sqli_state* sql_state)
 {
     /*
      * We assume we got a SQLi match
-     * This next part just helps reduce false positives.
+     * This next part just help reduce false positives.
      *
      */
     char ch;
@@ -2052,6 +2076,24 @@ int libinjection_sqli_not_whitelist(struct libinjection_sqli_state* sql_state)
     }
 
     switch (tlen) {
+    case 1:{
+        /*
+         * "s": a lone (possibly folded) string.
+         * Adjacent string literals concatenate in ANSI SQL, so
+         *  foo' 'bar  folds to a single string.  That shape is
+         * a real escaping technique, while a genuinely empty
+         * folded string ('' or '''') is common benign content.
+         */
+        if (sql_state->fingerprint[0] == TYPE_STRING) {
+            if (sql_state->stats_folds > 0 && sql_state->tokenvec[0].len > 0) {
+                sql_state->reason = __LINE__;
+                return TRUE;
+            }
+            sql_state->reason = __LINE__;
+            return FALSE;
+        }
+        break;
+    } /* case 1 */
     case 2:{
         /*
          * case 2 are "very small SQLi" which make them
@@ -2095,12 +2137,56 @@ int libinjection_sqli_not_whitelist(struct libinjection_sqli_state* sql_state)
         }
 
         /*
+         * bareword followed by a lone, unterminated slash-star
+         * comment with nothing else is not SQLi; any comment
+         * with content or extra tokens still is.
+         */
+        if (sql_state->tokenvec[0].type == TYPE_BAREWORD &&
+            sql_state->tokenvec[1].type == TYPE_COMMENT &&
+            sql_state->tokenvec[1].val[0] == '/' &&
+            sql_state->tokenvec[1].len == 2 &&
+            sql_state->stats_tokens == 2 &&
+            sql_state->stats_folds == 0) {
+                sql_state->reason = __LINE__;
+                return FALSE;
+        }
+
+        /*
          * if '1c' ends with '/x' then it's SQLi
          */
         if (sql_state->tokenvec[0].type == TYPE_NUMBER &&
             sql_state->tokenvec[1].type == TYPE_COMMENT &&
             sql_state->tokenvec[1].val[0] == '/') {
             return TRUE;
+        }
+
+        /*
+         * '1c' with a dash-dash comment: separate base64-looking blobs
+         * and comma lists from real attacks.
+         *   1611-IioXXIG1ti8rspL2vbXFy--  -> benign random token
+         *   1611/IioXX...--               -> benign random token
+         *   1,1--                         -> benign list text
+         *   1+1--  1*1--  1-1--  1 -- 1-- -> still SQLi
+         */
+        if (sql_state->tokenvec[0].type == TYPE_NUMBER &&
+            sql_state->tokenvec[1].type == TYPE_COMMENT &&
+            sql_state->tokenvec[1].val[0] == '-') {
+            const char* cs = sql_state->s;
+            size_t npos = sql_state->tokenvec[0].pos + sql_state->tokenvec[0].len;
+            ch = cs[npos];
+            if (ch == ',') {
+                sql_state->reason = __LINE__;
+                return FALSE;
+            }
+            if (sql_state->tokenvec[0].len >= 4 &&
+                (ch == '-' || ch == '/') &&
+                (ISDIGIT(cs[npos + 1]) ||
+                 ((cs[npos + 1] | 0x20) >= 'a' && (cs[npos + 1] | 0x20) <= 'z'))) {
+                /* long number followed by -/+letter: random tokens,
+                 * session ids, base64-ish blobs */
+                sql_state->reason = __LINE__;
+                return FALSE;
+            }
         }
 
         /**
@@ -2169,7 +2255,8 @@ int libinjection_sqli_not_whitelist(struct libinjection_sqli_state* sql_state)
 
                 if ((sql_state->tokenvec[0].str_open == CHAR_NULL)
                     && (sql_state->tokenvec[2].str_close == CHAR_NULL)
-                    && (sql_state->tokenvec[0].str_close == sql_state->tokenvec[2].str_open)) {
+                    && (sql_state->tokenvec[0].str_close == sql_state->tokenvec[2].str_open)
+                    && ! is_benign_middle_op(sql_state)) {
                     /*
                      * if ....foo" + "bar....
                      */
@@ -2198,6 +2285,34 @@ int libinjection_sqli_not_whitelist(struct libinjection_sqli_state* sql_state)
                 sql_state->reason = __LINE__;
                 return FALSE;
             }
+            if (! has_comment_stats(sql_state) &&
+                sql_state->tokenvec[0].type == TYPE_NUMBER &&
+                sql_state->tokenvec[2].type != TYPE_STRING &&
+                sql_state->tokenvec[0].type != TYPE_LEFTPARENS &&
+                sql_state->tokenvec[1].type != TYPE_LEFTPARENS &&
+                sql_state->tokenvec[2].type != TYPE_LEFTPARENS) {
+                char after = sql_state->s[sql_state->tokenvec[0].pos +
+                                         sql_state->tokenvec[0].len];
+                /*
+                 * "80% ACRYLIC AND 20% WOOL" folds to "1&1" purely
+                 * via arithmetic folding: the leading token is a
+                 * plain number glued to a percent sign.  Anything
+                 * non-numeric there (like the "\%0=..." probes) or
+                 * real probes like "1 or 1=1" stay flagged.
+                 */
+                size_t i;
+                int all_digits = sql_state->tokenvec[0].len > 0;
+                for (i = 0; i < sql_state->tokenvec[0].len; ++i) {
+                    if (! ISDIGIT(sql_state->tokenvec[0].val[i])) {
+                        all_digits = FALSE;
+                        break;
+                    }
+                }
+                if (after == '%' && all_digits) {
+                    sql_state->reason = __LINE__;
+                    return FALSE;
+                }
+            }
         } else if (sql_state->tokenvec[1].type == TYPE_KEYWORD) {
             if ((sql_state->tokenvec[1].len < 5) ||
                 cstrcasecmp("INTO", sql_state->tokenvec[1].val, 4)) {
@@ -2212,7 +2327,27 @@ int libinjection_sqli_not_whitelist(struct libinjection_sqli_state* sql_state)
     }  /* case 3 */
     case 4:
     case 5: {
-        /* nothing right now */
+        /*
+         * "select x from y where" / "select * from t where" are
+         * plain SQL sentences, not SQLi: exactly five unfolded
+         * tokens with no comments.  Any tail ("... where 1=1--")
+         * creates folding, more tokens or comments and stays
+         * flagged.
+         */
+        if ((streq(sql_state->fingerprint, "Enknk") ||
+             streq(sql_state->fingerprint, "Eoknk")) &&
+            sql_state->stats_tokens == 5 &&
+            sql_state->stats_folds == 0 &&
+            ! has_comment_stats(sql_state) &&
+            sql_state->tokenvec[0].type == TYPE_EXPRESSION &&
+            (sql_state->tokenvec[1].type == TYPE_BAREWORD ||
+             sql_state->tokenvec[1].type == TYPE_OPERATOR) &&
+            sql_state->tokenvec[2].type == TYPE_KEYWORD &&
+            sql_state->tokenvec[3].type == TYPE_BAREWORD &&
+            sql_state->tokenvec[4].type == TYPE_KEYWORD) {
+            sql_state->reason = __LINE__;
+            return FALSE;
+        }
         break;
     } /* case 5 */
     } /* end switch */
@@ -2322,4 +2457,30 @@ int libinjection_sqli(const char* input, size_t slen, char fingerprint[])
         fingerprint[0] = '\0';
     }
     return issqli;
+}
+
+/*
+ * Detects SQLi on a (possibly URL-encoded) input.
+ *
+ * Runs the normal detection on the input as-is, then on up to three
+ * rounds of URL decoding, so double and triple encoding such as
+ * "%2527" (-> "%27" -> "'") are seen by the fingerprint engine.
+ * Iteration stops as soon as decoding is a no-op.
+ *
+ * Returns 1 if SQLi (fingerprint filled), 0 if benign.
+ */
+struct sqli_url_ctx {
+    char* fp;
+};
+
+static int scan_sqli_cb(const char* s, size_t len, void* userdata)
+{
+    return libinjection_sqli(s, len, ((struct sqli_url_ctx*) userdata)->fp);
+}
+
+int libinjection_sqli_url(const char* input, size_t slen, char fingerprint[])
+{
+    struct sqli_url_ctx ctx;
+    ctx.fp = fingerprint;
+    return libinjection_scan_url(input, slen, 3, scan_sqli_cb, &ctx);
 }

@@ -2,9 +2,11 @@
 #include "libinjection.h"
 #include "libinjection_xss.h"
 #include "libinjection_html5.h"
+#include "libinjection_normalize.h"
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 typedef enum attribute {
     TYPE_NONE
@@ -21,6 +23,8 @@ static int is_black_url(const char* s, size_t len);
 static int cstrcasecmp_with_null(const char *a, const char *b, size_t n);
 static int html_decode_char_at(const char* src, size_t len, size_t* consumed);
 static int htmlencode_startswith(const char* prefix, const char *src, size_t n);
+static int is_black_style(const char* s, size_t len);
+static int contains_active_css(const char* s, size_t len);
 
 
 typedef struct stringtype {
@@ -137,6 +141,161 @@ static int html_decode_char_at(const char* src, size_t len, size_t* consumed)
 
 
 /*
+ * Case-insensitive raw scan for CSS payloads that execute.  Catches
+ * attribute-injection without tag context (value spliced into an
+ * existing tag attribute by the application), e.g.
+ *   x" style="background:url(javascript:alert(1))
+ * where the tokenizer never sees a tag.
+ */
+static int contains_active_css(const char* s, size_t len)
+{
+    static const char* needles[] = {
+        "url(javascript"
+        , "url(\tjavascript"
+        , "expression("
+        , "-moz-binding"
+        , NULL
+    };
+    size_t i;
+
+    for (i = 0; i < len; ++i) {
+        int n;
+        for (n = 0; needles[n] != NULL; ++n) {
+            size_t nlen = strlen(needles[n]);
+            size_t j;
+            int match = 1;
+            if (i + nlen > len) {
+                continue;
+            }
+            for (j = 0; j < nlen; ++j) {
+                char a = s[i + j];
+                char b = needles[n][j];
+                if (a >= 'A' && a <= 'Z') {
+                    a = (char) (a + 0x20);
+                }
+                if (a != b) {
+                    match = 0;
+                    break;
+                }
+            }
+            if (match) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/*
+ * Style values are only dangerous when they can execute something.
+ * Alerts on benign CSS like style="color: blue" were a large source
+ * of false positives, so scan the entity-decoded value for active
+ * content instead of banning the attribute outright.
+ */
+static int is_black_style(const char* s, size_t len)
+{
+    static const char* needles[] = {
+        "EXPRESSION"
+        , "BEHAVIOR"
+        , "BEHAVIOUR"
+        , "BINDING"
+        , "-MOZ-BINDING"
+        , "JAVASCRIPT"
+        , "VBSCRIPT"
+        , "LIVESCRIPT"
+        , "MOCHA"
+        , NULL
+    };
+    char win[17];
+    size_t wlen = 0;
+    size_t pos = 0;
+    int in_comment = 0;
+    int i;
+
+    win[0] = '\0';
+    while (pos < len) {
+        size_t consumed;
+        int ch;
+
+        if (in_comment) {
+            /* inside a CSS comment: skip until the closing star-slash */
+            if (pos + 1 < len && s[pos] == '*' && s[pos + 1] == '/') {
+                in_comment = 0;
+                pos += 2;
+            } else {
+                pos += 1;
+            }
+            continue;
+        }
+        if (pos + 1 < len && s[pos] == '/' && s[pos + 1] == '*') {
+            /* CSS comments may split keywords: expr/xss/ession */
+            in_comment = 1;
+            pos += 2;
+            continue;
+        }
+        if (s[pos] == '\\' && pos + 1 < len) {
+            /* CSS escape: backslash + 1-6 hex digits (+ one space) */
+            size_t j = pos + 1;
+            int val = 0;
+            int ndigits = 0;
+            while (j < len && ndigits < 6) {
+                char c = s[j];
+                int v;
+                if (c >= '0' && c <= '9') {
+                    v = c - '0';
+                } else if (c >= 'a' && c <= 'f') {
+                    v = c - 'a' + 10;
+                } else if (c >= 'A' && c <= 'F') {
+                    v = c - 'A' + 10;
+                } else {
+                    break;
+                }
+                val = val * 16 + v;
+                ndigits += 1;
+                j += 1;
+            }
+            if (ndigits > 0) {
+                ch = val & 0xFF;
+                pos = j;
+                if (pos < len && (s[pos] == ' ' || s[pos] == '\t')) {
+                    pos += 1;
+                }
+            } else {
+                ch = '\\';
+                pos += 1;
+            }
+        } else {
+            consumed = 0;
+            ch = html_decode_char_at(s + pos, len - pos, &consumed);
+            pos += consumed;
+        }
+        if (ch < 0) {
+            continue;
+        }
+        if (ch >= 'a' && ch <= 'z') {
+            ch -= 0x20;
+        }
+        if (ch == 0) {
+            continue;
+        }
+        if (wlen == 16) {
+            memmove(win, win + 1, 15);
+            wlen = 15;
+        }
+        win[wlen++] = (char) ch;
+        win[wlen] = '\0';
+        for (i = 0; needles[i] != NULL; ++i) {
+            size_t nlen = strlen(needles[i]);
+            if (wlen >= nlen &&
+                cstrcasecmp_with_null(needles[i], win + wlen - nlen, nlen) == 0) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/*
  * view-source:
  * data:
  * javascript:
@@ -158,6 +317,8 @@ static stringtype_t BLACKATTR[] = {
     , { "LOWSRC", TYPE_ATTR_URL }     /* Obsolete img attribute */
     , { "POSTER", TYPE_ATTR_URL }     /* Opera 10,11 */
     , { "SRC", TYPE_ATTR_URL }
+    , { "SRCDOC", TYPE_BLACK }        /* HTML 5: value is parsed as HTML */
+    , { "SRCSET", TYPE_ATTR_URL }     /* HTML 5 responsive images */
     , { "STYLE", TYPE_STYLE }
     , { "TO", TYPE_ATTR_URL }         /* SVG */
     , { "VALUES", TYPE_ATTR_URL }     /* SVG */
@@ -195,6 +356,7 @@ static const char* BLACKTAG[] = {
     , "IFRAME"
     , "IMPORT"
     , "ISINDEX"
+    , "KEYGEN" /* autofocus + onfocus vector, no real business use */
     , "LINK"
     , "LISTENER"
     /*    , "MARQUEE" */
@@ -274,9 +436,11 @@ static int htmlencode_startswith(const char *a, const char *b, size_t n)
             continue;
         }
 
-        if (cb == 10) {
-            /* always ignore vertical tab characters in user input */
-            /* who allows this?? */
+        if (cb < 32) {
+            /* URL parsers strip control characters (tab, LF, CR, ...)
+             * from URLs, so "jav&#x09;ascript:" is "javascript:".
+             * Always ignore them while matching.
+             */
             continue;
         }
 
@@ -380,6 +544,13 @@ static int is_black_url(const char* s, size_t len)
     /* covers JAVA, JAVASCRIPT, + colon */
     static const char* javascript_url = "JAVA";
 
+    /* legacy scheme vectors */
+    static const char* livescript_url = "LIVESCRIPT";
+    static const char* mocha_url = "MOCHA";
+    static const char* mhtml_url = "MHTML";
+    static const char* mscript_url = "MSCRIPT";
+    static const char* jar_url = "JAR";
+
     /* skip whitespace */
     while (len > 0 && (*s <= 32 || *s >= 127)) {
         /*
@@ -408,6 +579,26 @@ static int is_black_url(const char* s, size_t len)
     if (htmlencode_startswith(vbscript_url, s, len)) {
         return 1;
     }
+
+    if (htmlencode_startswith(livescript_url, s, len)) {
+        return 1;
+    }
+
+    if (htmlencode_startswith(mocha_url, s, len)) {
+        return 1;
+    }
+
+    if (htmlencode_startswith(mhtml_url, s, len)) {
+        return 1;
+    }
+
+    if (htmlencode_startswith(mscript_url, s, len)) {
+        return 1;
+    }
+
+    if (htmlencode_startswith(jar_url, s, len)) {
+        return 1;
+    }
     return 0;
 }
 
@@ -415,6 +606,10 @@ int libinjection_is_xss(const char* s, size_t len, int flags)
 {
     h5_state_t h5;
     attribute_t attr = TYPE_NONE;
+
+    if (contains_active_css(s, len)) {
+        return 1;
+    }
 
     libinjection_h5_init(&h5, s, len, (enum html5_flags) flags);
     while (libinjection_h5_next(&h5)) {
@@ -455,9 +650,20 @@ int libinjection_is_xss(const char* s, size_t len, int flags)
                 if (is_black_url(h5.token_start, h5.token_len)) {
                     return 1;
                 }
+                /* IE ignores backticks inside attribute values, so
+                 * <img src="x` `<script>.."> executes: see
+                 * http://html5sec.org/#71.  In an attribute-value
+                 * position a backtick is never legitimate content.
+                 */
+                if (memchr(h5.token_start, '`', h5.token_len) != NULL) {
+                    return 1;
+                }
                 break;
             case TYPE_STYLE:
-                return 1;
+                if (is_black_style(h5.token_start, h5.token_len)) {
+                    return 1;
+                }
+                break;
             case TYPE_ATTR_INDIRECT:
                 /* an attribute name is specified in a _value_ */
                 if (is_black_attr(h5.token_start, h5.token_len)) {
@@ -529,4 +735,21 @@ int libinjection_xss(const char* s, size_t len)
     }
 
     return 0;
+}
+
+/*
+ * Detects XSS in a possibly URL-encoded input: the input is tested
+ * as-is and after up to three rounds of URL decoding, so payloads
+ * like "%3Cscript%3E" and double-encoded "%253Cscript%253E" are seen.
+ * Returns 1 if XSS found, 0 if benign.
+ */
+static int scan_xss_cb(const char* s, size_t len, void* userdata)
+{
+    (void) userdata;
+    return libinjection_xss(s, len);
+}
+
+int libinjection_xss_url(const char* s, size_t len)
+{
+    return libinjection_scan_url(s, len, 3, scan_xss_cb, NULL);
 }

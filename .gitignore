@@ -50,3 +50,10 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# agent working files
+.monbot/
+AGENTS.md
+BOOTSTRAP.md
+HEARTBEAT.md
+TOOLS.md

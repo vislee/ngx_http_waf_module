@@ -45,6 +45,19 @@ _HTTP_WAF_SRCS="\
     $ngx_addon_dir/libinjection/libinjection_sqli.c \
     $ngx_addon_dir/libinjection/libinjection_xss.c \
     $ngx_addon_dir/libinjection/libinjection_html5.c \
+    $ngx_addon_dir/libinjection/libinjection_classify.c \
+    $ngx_addon_dir/libinjection/libinjection_normalize.c \
+    $ngx_addon_dir/libinjection/libinjection_cmd.c \
+    $ngx_addon_dir/libinjection/libinjection_code.c \
+    $ngx_addon_dir/libinjection/libinjection_crlf.c \
+    $ngx_addon_dir/libinjection/libinjection_deser.c \
+    $ngx_addon_dir/libinjection/libinjection_ldap.c \
+    $ngx_addon_dir/libinjection/libinjection_nosql.c \
+    $ngx_addon_dir/libinjection/libinjection_recon.c \
+    $ngx_addon_dir/libinjection/libinjection_redirect.c \
+    $ngx_addon_dir/libinjection/libinjection_ssrf.c \
+    $ngx_addon_dir/libinjection/libinjection_ssti.c \
+    $ngx_addon_dir/libinjection/libinjection_trav.c \
 "
 
 if test -n "$ngx_module_link"; then

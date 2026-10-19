@@ -126,6 +126,7 @@ The rule format:
   + str:[decode_func1|decode_func2|][!]rx@regex
   + libinj:[decode_func1|decode_func2|]sql
   + libinj:[decode_func1|decode_func2|]xss
+  + libinj:[decode_func1|decode_func2|]all
   + hash:[!]md5@hashcode
   + hash:[!]crc32@hashcode
   + hash:[!]crc32_long@hashcode
@@ -186,6 +187,25 @@ The whitelist rule format:
 ```nginx
 security_loc_rule "wl:id1,id2" "z:zones" "note:test whitelist";
 ```
+
+#### Value-constrained whitelist (target scoping)
+
+A whitelist zone can carry a value regex: `z:V_ARGS:name~regex`. When the
+value matches the regex, the whitelisted rule is skipped **for that target
+only** (same semantics as ModSecurity `SecRuleUpdateTargetById`); the same
+rule still scans other args and the arg name itself. Available for
+whitelist rules only (`security_loc_rule` with `wl:`), and only for
+named-value zones (`V_ARGS/V_HEADERS/V_BODY`).
+
+Example: skip rule 941950 for args `q` whose value starts with `safe`:
+```nginx
+security_loc_rule "wl:941950" "z:V_ARGS:q~^safe";
+```
+
+> Note: rules with `libinj:all` score per class — a rule's `s:` tag only
+> gets credited when the payload actually matched that class (e.g. an XSS
+> payload does not add to `$SQLI` even though every `libinj:all` rule
+> evaluates every payload).
 
 
 [Back to TOC](#table-of-contents)

@@ -287,6 +287,15 @@ int libinjection_sqli_blacklist(struct libinjection_sqli_state* sql_state);
  */
 int libinjection_sqli_not_whitelist(struct libinjection_sqli_state * sql_state);
 
+/**
+ * Detects SQLi in a possibly URL-encoded input: runs the normal
+ * detection, then on up to three rounds of URL decoding (defeats
+ * double/triple encoding).  Same contract as libinjection_sqli(),
+ * except the fingerprint comes from the layer that matched (raw or
+ * decoded).
+ */
+int libinjection_sqli_url(const char* input, size_t slen, char fingerprint[]);
+
 #ifdef __cplusplus
 }
 #endif

