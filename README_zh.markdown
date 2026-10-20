@@ -13,6 +13,7 @@ Table of Contents
 * [Status](#status)
 * [Install](#install)
 * [Example Configuration](#example-configuration)
+* [默认规则集（对齐 CRS）](#默认规则集对齐-crs)
 * [Directives](#directives)
     * [security_rule](#security_rule)
     * [security_loc_rule](#security_loc_rule)
@@ -86,6 +87,46 @@ http {
         }
     }
 
+```
+
+[Back to TOC](#table-of-contents)
+
+
+默认规则集（对齐 CRS）
+=====================
+
+模块内置了一套可直接 include 的规则集 `rules/waf-default.conf`，对齐
+OWASP Core Rule Set v3.3 PL1 的异常评分模型：每条规则给带标签的计数器
+打分（920xxx CRLF、930xxx LFI、932xxx 命令执行/代码执行、934xxx SSRF、
+942xxx SQLi、941xxx XSS、919xxx SSTI、918xxx NoSQLi、917xxx LDAPi、
+916xxx 反序列化、913xxx 扫描器侦察、923xxx 开放重定向、911xxx 代码注入），
+由 `security_check` 阈值把分数转成动作。
+
+```nginx
+http {
+    include rules/waf-default.conf;
+
+    server {
+        location / {
+            security_waf on;
+            security_log ./logs/waf.log;
+
+            security_check "$SQLI>4" BLOCK;
+            security_check "$XSS>4" BLOCK;
+            security_check "$CRLF>3" BLOCK;
+            # ... 每个 tag 一条 security_check，完整清单见 rules/waf-default.conf
+        }
+    }
+}
+```
+
+规则集只包含 http 级指令。扫描区域的选择以误报实测为依据（用内置的
+libinjection 验证）：HEADERS 区域不开 SSRF（`Host` 值会被判为 SSRF），
+BODY 区域不开 REDIRECT/RECON（请求体合法地携带 URL 与路径）。按目标
+豁免使用带值约束的白名单，例如：
+
+```nginx
+security_loc_rule "wl:941100" "z:V_ARGS:html~^allow";
 ```
 
 [Back to TOC](#table-of-contents)

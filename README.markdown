@@ -13,6 +13,7 @@ Table of Contents
 * [Status](#status)
 * [Install](#install)
 * [Example Configuration](#example-configuration)
+* [Default ruleset (CRS-aligned)](#default-ruleset-crs-aligned)
 * [TODO](#todo)
 * [Directives](#directives)
     * [security_rule](#security_rule)
@@ -87,6 +88,47 @@ http {
         }
     }
 
+```
+
+[Back to TOC](#table-of-contents)
+
+Default ruleset (CRS-aligned)
+=============================
+
+The module ships a ready-made ruleset at `rules/waf-default.conf`, aligned
+with the OWASP Core Rule Set v3.3 PL1 anomaly-scoring model: every rule
+scores a tagged counter (920xxx CRLF, 930xxx LFI, 932xxx shell/RCE,
+934xxx SSRF, 942xxx SQLi, 941xxx XSS, 919xxx SSTI, 918xxx NoSQLi,
+917xxx LDAPi, 916xxx deserialization, 913xxx recon, 923xxx open redirect,
+911xxx code injection), and `security_check` thresholds turn the score
+into an action.
+
+```nginx
+http {
+    include rules/waf-default.conf;
+
+    server {
+        location / {
+            security_waf on;
+            security_log ./logs/waf.log;
+
+            security_check "$SQLI>4" BLOCK;
+            security_check "$XSS>4" BLOCK;
+            security_check "$CRLF>3" BLOCK;
+            # ... one security_check per tag, see rules/waf-default.conf
+        }
+    }
+}
+```
+
+The ruleset contains http-level rules only. Zone selection is
+false-positive driven (verified with the bundled libinjection): no SSRF in
+the HEADERS zone (`Host` values classify as SSRF), no REDIRECT/RECON in
+the BODY zone (bodies legitimately carry URLs and paths). Per-target
+exclusions use value-constrained whitelists, e.g.:
+
+```nginx
+security_loc_rule "wl:941100" "z:V_ARGS:html~^allow";
 ```
 
 [Back to TOC](#table-of-contents)
