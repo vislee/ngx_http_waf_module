@@ -131,12 +131,12 @@ exclusions use value-constrained whitelists, e.g.:
 security_loc_rule "wl:941100" "z:V_ARGS:html~^allow";
 ```
 
-[Back to TOC](#table-of-contents)
-
-TODO
-==========
-
-+ support content-type: json and xml.
+Exact CRS rules are layered on top of the semantic detectors where
+`libinj:all` under-detects: scanner User-Agents (913xxx, the CRS
+`scanners-user-agents.data` list inlined as a `V_HEADERS:User-Agent`
+regex), remote file inclusion (931xxx) and PHP injection (933xxx) —
+each verified by `t/waf_crs.t`, which reads `rules/waf-default.conf`
+directly so the shipped ruleset itself is under test.
 
 [Back to TOC](#table-of-contents)
 

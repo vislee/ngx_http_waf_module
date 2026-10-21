@@ -129,6 +129,12 @@ BODY 区域不开 REDIRECT/RECON（请求体合法地携带 URL 与路径）。�
 security_loc_rule "wl:941100" "z:V_ARGS:html~^allow";
 ```
 
+在语义检测器漏检的场景上叠加 CRS 精确规则：扫描器 User-Agent
+（913xxx，把 CRS `scanners-user-agents.data` 列表内联为
+`V_HEADERS:User-Agent` 正则）、远程文件包含（931xxx）与 PHP 注入
+（933xxx）——由 `t/waf_crs.t` 验证，该测试直接读取
+`rules/waf-default.conf`，确保发布出去的规则集本身就在测试覆盖之下。
+
 [Back to TOC](#table-of-contents)
 
 
