@@ -112,10 +112,16 @@ http {
             security_waf on;
             security_log ./logs/waf.log;
 
+            # blocking set (see rules/waf-default.conf for the full list)
             security_check "$SQLI>4" BLOCK;
             security_check "$XSS>4" BLOCK;
-            security_check "$CRLF>3" BLOCK;
-            # ... one security_check per tag, see rules/waf-default.conf
+            security_check "$CRLF>4" BLOCK;
+            security_check "$RECON>4" BLOCK;
+            security_check "$RFI>4" BLOCK;
+            security_check "$PHP>4" BLOCK;
+            # $REDIRECT is alert-only: protocol-relative targets such as
+            # "//cdn.example.com/a.js" are legitimate webhook parameters
+            security_check "$REDIRECT>4" LOG;
         }
     }
 }
@@ -123,9 +129,11 @@ http {
 
 The ruleset contains http-level rules only. Zone selection is
 false-positive driven (verified with the bundled libinjection): no SSRF in
-the HEADERS zone (`Host` values classify as SSRF), no REDIRECT/RECON in
-the BODY zone (bodies legitimately carry URLs and paths). Per-target
-exclusions use value-constrained whitelists, e.g.:
+the HEADERS zone (`Host` values classify as SSRF), no REDIRECT/RECON and
+no CRLF in the BODY zone (bodies legitimately carry URLs, paths, and
+`\r\nContent-Type:` in uploaded mail/markup). Only the blocking set
+listed above turns scores into actions; every other tag is alert-only.
+Per-target exclusions use value-constrained whitelists, e.g.:
 
 ```nginx
 security_loc_rule "wl:941100" "z:V_ARGS:html~^allow";
@@ -134,7 +142,12 @@ security_loc_rule "wl:941100" "z:V_ARGS:html~^allow";
 Exact CRS rules are layered on top of the semantic detectors where
 `libinj:all` under-detects: scanner User-Agents (913xxx, the CRS
 `scanners-user-agents.data` list inlined as a `V_HEADERS:User-Agent`
-regex), remote file inclusion (931xxx) and PHP injection (933xxx) —
+regex; entries whose bare name occurs in legitimate UAs — `nmap`,
+`mozilla` — are matched by their version-shaped form instead of the CRS
+`@pm` substring, so `python-nmap/0.7.1` and `Nexus 7` browser UAs pass),
+remote file inclusion (931xxx) and PHP injection (933xxx, IDs mirroring
+the ported CRS rules: 933100 open tag, 933120 config/PHP function names,
+933160 dangerous function calls) —
 each verified by `t/waf_crs.t`, which reads `rules/waf-default.conf`
 directly so the shipped ruleset itself is under test.
 

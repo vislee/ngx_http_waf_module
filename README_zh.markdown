@@ -111,10 +111,16 @@ http {
             security_waf on;
             security_log ./logs/waf.log;
 
+            # 拦截集合（完整清单见 rules/waf-default.conf）
             security_check "$SQLI>4" BLOCK;
             security_check "$XSS>4" BLOCK;
-            security_check "$CRLF>3" BLOCK;
-            # ... 每个 tag 一条 security_check，完整清单见 rules/waf-default.conf
+            security_check "$CRLF>4" BLOCK;
+            security_check "$RECON>4" BLOCK;
+            security_check "$RFI>4" BLOCK;
+            security_check "$PHP>4" BLOCK;
+            # $REDIRECT 只告警：//cdn.example.com/a.js 这类协议相对地址
+            # 是 webhook 回调参数的合法取值
+            security_check "$REDIRECT>4" LOG;
         }
     }
 }
@@ -122,8 +128,9 @@ http {
 
 规则集只包含 http 级指令。扫描区域的选择以误报实测为依据（用内置的
 libinjection 验证）：HEADERS 区域不开 SSRF（`Host` 值会被判为 SSRF），
-BODY 区域不开 REDIRECT/RECON（请求体合法地携带 URL 与路径）。按目标
-豁免使用带值约束的白名单，例如：
+BODY 区域不开 REDIRECT/RECON，也不开 CRLF（请求体合法地携带 URL、路径，
+以及上传邮件/标记片段里的 `\r\nContent-Type:`）。只有上面列出的拦截集合
+会把分数转成动作，其余 tag 一律只告警。按目标豁免使用带值约束的白名单，例如：
 
 ```nginx
 security_loc_rule "wl:941100" "z:V_ARGS:html~^allow";
@@ -131,8 +138,12 @@ security_loc_rule "wl:941100" "z:V_ARGS:html~^allow";
 
 在语义检测器漏检的场景上叠加 CRS 精确规则：扫描器 User-Agent
 （913xxx，把 CRS `scanners-user-agents.data` 列表内联为
-`V_HEADERS:User-Agent` 正则）、远程文件包含（931xxx）与 PHP 注入
-（933xxx）——由 `t/waf_crs.t` 验证，该测试直接读取
+`V_HEADERS:User-Agent` 正则；名字会出现在合法 UA 里的条目——如 `nmap`、
+`mozilla`——改用带版本的形态匹配，而不是 CRS `@pm` 的裸子串，因此
+`python-nmap/0.7.1` 与 `Nexus 7` 浏览器 UA 不会被拦）、远程文件包含
+（931xxx）与 PHP 注入（933xxx，ID 与移植来源的 CRS 规则一致：933100
+开标签、933120 配置项/PHP 函数名、933160 危险函数调用）——由
+`t/waf_crs.t` 验证，该测试直接读取
 `rules/waf-default.conf`，确保发布出去的规则集本身就在测试覆盖之下。
 
 [Back to TOC](#table-of-contents)

